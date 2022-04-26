@@ -14,6 +14,9 @@ enable_pin = Pin(5, Pin.OUT, value=1)
 MATRIX_SIZE_X = 64
 MATRIX_SIZE_Y = 32
 
+#Time before cycling to next image, in seconds
+CYCLE_TIME = 5
+
 #The number of data selection addresses on your LED Matrix
 MATRIX_ADDRESS_COUNT = const(16)
 
@@ -92,7 +95,7 @@ _thread.start_new_thread(frames_feeder, ())
 
 for _ in range(10000):
     for path in frames_paths:
-        sleep(1.5)
+        sleep(CYCLE_TIME)
         with open(path, 'rb') as frame_data:
             frame_buffer_temp = frame_data.read()
         with frame_buffer_lock:
