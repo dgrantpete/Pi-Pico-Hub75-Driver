@@ -1,4 +1,7 @@
 # LED-Matrix-Compiler
+
+**I will be making some significant updates to this project in the coming weeks! Life has gotten busy since I initially created (and neglected) this project, but after having gained a decent amount of personal and professional experience, I will be completely revamping everything! [Stay tuned!](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/tree/release/v1.0.0)**
+
 An open source Hub-75 Driver for the Raspberry Pi Pico that allows for the display of images, running up to 125MHz! THIS PROJECT IS A VERY EARLY WORK IN PROGRESS; better instructions for setting up will follow shortly!
 
 NOTE: Currently only works on Windows for some of the read/write operations of 'png_to_frame.py', planning on making cross compatible soon!
