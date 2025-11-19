@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "src"
+		}
+	],
+	"settings": {},
+	"extensions": {
+		"recommendations": [
+			"paulober.pico-w-go"
+		]
+	}
+}
