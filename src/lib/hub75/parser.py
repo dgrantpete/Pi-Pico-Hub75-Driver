@@ -1,4 +1,5 @@
-from hub75.ppm import PPMImage
+from lib.hub75.image import PPMImage
+import micropython
 
 class BufferCursor:
     def __init__(self, buffer):
