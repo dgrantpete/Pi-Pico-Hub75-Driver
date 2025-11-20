@@ -22,15 +22,12 @@ Example usage:
 __version__ = '1.0.0'
 __author__ = 'Your Name'
 
-from hub75.display import BitPlanes, COLOR_BIT_DEPTH
-from hub75.matrix_frame import MatrixFrame
-from hub75.ppm import PPMImage
-from hub75.parsing import parse_ppm_image
+from hub75.display import BitPlanes
+from lib.hub75.image import PPMImage
+from lib.hub75.parser import parse_ppm_image
 
 __all__ = [
     'BitPlanes',
-    'MatrixFrame',
     'PPMImage',
-    'parse_ppm_image',
-    'COLOR_BIT_DEPTH',
+    'parse_ppm_image'
 ]

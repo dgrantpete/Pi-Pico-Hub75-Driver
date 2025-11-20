@@ -7,7 +7,9 @@
 			"path": "src"
 		}
 	],
-	"settings": {},
+	"settings": {
+		"micropico.syncFolder": "src"
+	},
 	"extensions": {
 		"recommendations": [
 			"paulober.pico-w-go"
