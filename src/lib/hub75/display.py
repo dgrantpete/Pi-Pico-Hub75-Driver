@@ -97,7 +97,7 @@ def display_addressing_pio():
     nop()                       .side(0) [1]
     nop()                       .side(0)
     nop()                       .side(0)
-    irq(0)              .side(1)
+    irq(0)                      .side(1)
     jmp(x_dec, "write_address") .side(1)
     set(x, 15)                  .side(1)
     jmp(y_dec, "write_address") .side(1)
@@ -116,7 +116,7 @@ def display_addressing_pio():
 )
 def data_output_pio():
     set(x, 31)                  .side(0b01)
-    irq(1)              .side(0b00)
+    irq(1)                      .side(0b00)
     label("write_data")
     out(pins, 8)                .side(0b00)
     jmp(x_dec, "write_data")    .side(0b10)
