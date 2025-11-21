@@ -20,7 +20,7 @@ Example usage:
 """
 
 __version__ = '1.0.0'
-__author__ = 'Your Name'
+__author__ = 'Grant Peterson'
 
 from hub75.display import BitPlanes
 from lib.hub75.image import PPMImage
