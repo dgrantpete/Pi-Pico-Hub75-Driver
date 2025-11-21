@@ -1,0 +1,20 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "Pico natmods",
+            "intelliSenseMode": "gcc-arm",
+            "cStandard": "c17",
+            "includePath": [
+                "${workspaceFolder:src}/../tools/micropython",
+                "${workspaceFolder:src}/../tools/micropython/py"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder:src}/../tools/micropython",
+                    "${workspaceFolder:src}/../tools/micropython/py"
+                ]
+            }
+        }
+    ]
+}
