@@ -16,5 +16,6 @@
         "run",
         "softreset",
         "togglepicowfs"
-    ]
+    ],
+    "micropico.softResetAfterUpload": true
 }

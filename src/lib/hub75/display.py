@@ -65,13 +65,13 @@ class BitPlanes:
 
         while input_index < bottom_offset:
             if bytes_per_channel == 1:
-                r1 = input_data[input_index]
-                g1 = input_data[input_index + 1]
-                b1 = input_data[input_index + 2]
+                r1 = (input_data[input_index] * 255) // max_value
+                g1 = (input_data[input_index + 1] * 255) // max_value
+                b1 = (input_data[input_index + 2] * 255) // max_value
 
-                r2 = input_data[input_index + bottom_offset]
-                g2 = input_data[input_index + bottom_offset + 1]
-                b2 = input_data[input_index + bottom_offset + 2]
+                r2 = (input_data[input_index + bottom_offset] * 255) // max_value
+                g2 = (input_data[input_index + bottom_offset + 1] * 255) // max_value
+                b2 = (input_data[input_index + bottom_offset + 2] * 255) // max_value
 
                 input_index += 3
             else:
@@ -87,58 +87,8 @@ class BitPlanes:
                 
             # Manual loop unrolling provides enough of a speedup here to justify the decreased readability
 
-            # Bitplane 0 (MSB)
+            # Bitplane 0 (LSB)
             output_data[bitplane_offset] = (
-                r1 & 0b10000000 |
-                (g1 >> 1) & 0b01000000 |
-                (b1 >> 2) & 0b00100000 |
-                (r2 >> 3) & 0b00010000 |
-                (g2 >> 4) & 0b00001000 |
-                (b2 >> 5) & 0b00000100
-            )
-
-            # Bitplane 1
-            output_data[bitplane_offset + bitplane_size] = (
-                (r1 << 1) & 0b10000000 |
-                g1 & 0b01000000 |
-                (b1 >> 1) & 0b00100000 |
-                (r2 >> 2) & 0b00010000 |
-                (g2 >> 3) & 0b00001000 |
-                (b2 >> 4) & 0b00000100
-            )
-
-            # Bitplane 2
-            output_data[bitplane_offset + bitplane_size * 2] = (
-                (r1 << 2) & 0b10000000 |
-                (g1 << 1) & 0b01000000 |
-                b1 & 0b00100000 |
-                (r2 >> 1) & 0b00010000 |
-                (g2 >> 2) & 0b00001000 |
-                (b2 >> 3) & 0b00000100
-            )
-
-            # Bitplane 3
-            output_data[bitplane_offset + bitplane_size * 3] = (
-                (r1 << 3) & 0b10000000 |
-                (g1 << 2) & 0b01000000 |
-                (b1 << 1) & 0b00100000 |
-                r2 & 0b00010000 |
-                (g2 >> 1) & 0b00001000 |
-                (b2 >> 2) & 0b00000100
-            )
-
-            # Bitplane 4
-            output_data[bitplane_offset + bitplane_size * 4] = (
-                (r1 << 4) & 0b10000000 |
-                (g1 << 3) & 0b01000000 |
-                (b1 << 2) & 0b00100000 |
-                (r2 << 1) & 0b00010000 |
-                g2 & 0b00001000 |
-                (b2 >> 1) & 0b00000100
-            )
-
-            # Bitplane 5 (LSB)
-            output_data[bitplane_offset + bitplane_size * 5] = (
                 (r1 << 5) & 0b10000000 |
                 (g1 << 4) & 0b01000000 |
                 (b1 << 3) & 0b00100000 |
@@ -147,43 +97,117 @@ class BitPlanes:
                 b2 & 0b00000100
             )
 
+            # Bitplane 1
+            output_data[bitplane_offset + bitplane_size] = (
+                (r1 << 4) & 0b10000000 |
+                (g1 << 3) & 0b01000000 |
+                (b1 << 2) & 0b00100000 |
+                (r2 << 1) & 0b00010000 |
+                g2 & 0b00001000 |
+                (b2 >> 1) & 0b00000100
+            )
+
+            # Bitplane 2
+            output_data[bitplane_offset + bitplane_size * 2] = (
+                (r1 << 3) & 0b10000000 |
+                (g1 << 2) & 0b01000000 |
+                (b1 << 1) & 0b00100000 |
+                r2 & 0b00010000 |
+                (g2 >> 1) & 0b00001000 |
+                (b2 >> 2) & 0b00000100
+            )
+
+            # Bitplane 3
+            output_data[bitplane_offset + bitplane_size * 3] = (
+                (r1 << 2) & 0b10000000 |
+                (g1 << 1) & 0b01000000 |
+                b1 & 0b00100000 |
+                (r2 >> 1) & 0b00010000 |
+                (g2 >> 2) & 0b00001000 |
+                (b2 >> 3) & 0b00000100
+            )
+
+            # Bitplane 4
+            output_data[bitplane_offset + bitplane_size * 4] = (
+                (r1 << 1) & 0b10000000 |
+                g1 & 0b01000000 |
+                (b1 >> 1) & 0b00100000 |
+                (r2 >> 2) & 0b00010000 |
+                (g2 >> 3) & 0b00001000 |
+                (b2 >> 4) & 0b00000100
+            )
+
+            # Bitplane 5 (MSB)
+            output_data[bitplane_offset + bitplane_size * 5] = (
+                r1 & 0b10000000 |
+                (g1 >> 1) & 0b01000000 |
+                (b1 >> 2) & 0b00100000 |
+                (r2 >> 3) & 0b00010000 |
+                (g2 >> 4) & 0b00001000 |
+                (b2 >> 5) & 0b00000100
+            )
+
             bitplane_offset += 1
 
-# IRQ 0: Safe to latch data (display not enabled)
-# IRQ 1: Data latching complete, safe to enable display
+CLOCK_ASSERTED = const(0b10)
+LATCH_ASSERTED = const(0b01)
+BOTH_DEASSERTED = const(0b00)
 
-@rp2.asm_pio(
-    sideset_init=rp2.PIO.OUT_HIGH,
-    out_init=[rp2.PIO.OUT_LOW] * 4,
-)
-def display_addressing_pio():
-    nop()                       .side(0) [15]
-    nop()                       .side(0) [7]
-    nop()                       .side(0) [3]
-    nop()                       .side(0) [1]
-    nop()                       .side(0)
-    nop()                       .side(0)
-    irq(0)                      .side(1)
-    jmp(x_dec, "write_address") .side(1)
-    set(x, 15)                  .side(1)
-    jmp(y_dec, "write_address") .side(1)
-    set(y, 5)                   .side(1)
-    label("write_address")
-    mov(pins, x)                .side(1)
-    wait(1, irq, 1)             .side(1)
-    mov(pc, y)                  .side(1)
+OE_ASSERTED = const(0b0)
+OE_DEASSERTED = const(0b1)
 
-@rp2.asm_pio(
-    sideset_init=[rp2.PIO.OUT_LOW] * 2, # data clock is 0b10, latch is 0b01
-    out_init=[rp2.PIO.OUT_LOW] * 6,
-    out_shiftdir=rp2.PIO.SHIFT_LEFT,
-    autopull=True,
-    pull_thresh=32,
-)
-def data_output_pio():
-    set(x, 31)                  .side(0b01)
-    irq(1)                      .side(0b00)
-    label("write_data")
-    out(pins, 8)                .side(0b00)
-    jmp(x_dec, "write_data")    .side(0b10)
-    wait(1, irq, 0)             .side(0b00)
+def create_pio_programs(
+        row_origin_top: bool, 
+        latch_safe_irq: int, 
+        latch_complete_irq: int
+) -> tuple[function, function]:
+    
+    if latch_safe_irq == latch_complete_irq:
+        raise ValueError("'latch_safe_irq' and 'latch_complete_irq' must be different IRQ indexes")
+
+    @rp2.asm_pio(
+        sideset_init=rp2.PIO.OUT_HIGH,
+        out_init=[rp2.PIO.OUT_LOW] * 4,
+    )
+    def display_addressing_pio():
+        # Dynamic jumps to instructions indexes 0-5 creates accumulated exponential delays for bitplane timing:
+        # 5 ->                      1 = 1 cycle
+        # 4 ->                  1 + 1 = 2 cycles
+        # 3 ->              2 + 1 + 1 = 4 cycles
+        # ...
+        # 0 -> 16 + 8 + 4 + 2 + 1 + 1 = 32 cycles
+        nop()                                           .side(OE_ASSERTED) [15]
+        nop()                                           .side(OE_ASSERTED) [7]
+        nop()                                           .side(OE_ASSERTED) [3]
+        nop()                                           .side(OE_ASSERTED) [1]
+        nop()                                           .side(OE_ASSERTED)
+        nop()                                           .side(OE_ASSERTED)
+        irq(latch_safe_irq)                             .side(OE_DEASSERTED)
+        jmp(x_dec, "write_address")                     .side(OE_DEASSERTED)
+        set(x, 15)                                      .side(OE_DEASSERTED)
+        jmp(y_dec, "write_address")                     .side(OE_DEASSERTED)
+        set(y, 5)                                       .side(OE_DEASSERTED)
+        label("write_address")
+        # We invert the bits here when the row origin is at the top so it counts up from 0 to 15 (to work its way down)
+        # (even though the x register itself counts down from 15 to 0)
+        mov(pins, invert(x) if row_origin_top else x)   .side(OE_DEASSERTED)
+        wait(1, irq, latch_complete_irq)                .side(OE_DEASSERTED)
+        mov(pc, y)                                      .side(OE_DEASSERTED)
+
+    @rp2.asm_pio(
+        # clock is 0b10, latch is 0b01
+        sideset_init=[rp2.PIO.OUT_LOW] * 2,
+        out_init=[rp2.PIO.OUT_LOW] * 6,
+        out_shiftdir=rp2.PIO.SHIFT_LEFT,
+        autopull=True,
+        pull_thresh=32,
+    )
+    def data_output_pio():
+        set(x, 31)                  .side(LATCH_ASSERTED)
+        irq(latch_complete_irq)     .side(BOTH_DEASSERTED)
+        label("write_data")
+        out(pins, 8)                .side(BOTH_DEASSERTED)
+        jmp(x_dec, "write_data")    .side(CLOCK_ASSERTED)
+        wait(1, irq, latch_safe_irq).side(BOTH_DEASSERTED)
+
+    return display_addressing_pio, data_output_pio

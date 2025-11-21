@@ -88,13 +88,14 @@ def set() -> Set: ...
 @overload
 def set(iterable: Iterable[T]) -> Set[T]: ...
 
-# ----- PIO “magic names” (registers / targets) -----
 class PIORegister(PIOMoveOperable, PIOMoveTarget): ...
 
 x: Final[PIORegister]
 y: Final[PIORegister]
 
-pins: Final[Any]
+class PIOPins(PIOMoveOperable, PIOMoveTarget, PIOOutTarget): ...
+
+pins: Final[PIOPins]
 
 class PIOProgramCounter(PIOMoveTarget, PIOOutTarget): ...
 
@@ -106,8 +107,8 @@ class PIOInputShiftRegister(PIOOutTarget): ...
 isr: Final[PIOInputShiftRegister]
 
 # ----- PIO jmp conditions -----
-x_dec: Final[Any]
-y_dec: Final[Any]
-x_not_y: Final[Any]
-pin: Final[Any]
-osre: Final[Any]
+x_dec: Final[PIOJumpCondition]
+y_dec: Final[PIOJumpCondition]
+x_not_y: Final[PIOJumpCondition]
+pin: Final[PIOJumpCondition]
+osre: Final[PIOJumpCondition]
