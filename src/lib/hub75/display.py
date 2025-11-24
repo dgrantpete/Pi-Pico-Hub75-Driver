@@ -1,10 +1,11 @@
 import micropython
 import rp2
 from lib.hub75.image import PPMImage
-
-COLOR_BIT_DEPTH = const(6)
+from lib.hub75.native.native import load_ppm
+from lib.hub75.constants import COLOR_BIT_DEPTH
 
 class BitPlanes:
+    @micropython.native
     def __init__(self, width: int, height: int):
         self._width = width
         self._height = height
@@ -33,121 +34,8 @@ class BitPlanes:
 
         if len(ppm.image_data) != expected_byte_count:
             raise ValueError(f"Unexpected PPM data byte count: expected {expected_byte_count}, got {len(ppm.image_data)}")
-        
-        self._load_ppm(
-            ppm.image_data,
-            len(ppm.image_data),
-            self._bitframe_data,
-            len(self._bitframe_data),
-            ppm.max_value
-        )
 
-    @staticmethod
-    @micropython.viper
-    def _load_ppm(
-        input_data: ptr8,
-        input_size: int,
-        output_data: ptr8,
-        output_size: int,
-        max_value: int
-    ):
-        bitplane_offset: int = 0
-        
-        bytes_per_channel: int = 1
-
-        if max_value >= 256:
-            bytes_per_channel = 2
-
-        bitplane_size: int = output_size // COLOR_BIT_DEPTH
-
-        input_index: int = 0
-        bottom_offset: int = input_size // 2
-
-        while input_index < bottom_offset:
-            if bytes_per_channel == 1:
-                r1 = (input_data[input_index] * 255) // max_value
-                g1 = (input_data[input_index + 1] * 255) // max_value
-                b1 = (input_data[input_index + 2] * 255) // max_value
-
-                r2 = (input_data[input_index + bottom_offset] * 255) // max_value
-                g2 = (input_data[input_index + bottom_offset + 1] * 255) // max_value
-                b2 = (input_data[input_index + bottom_offset + 2] * 255) // max_value
-
-                input_index += 3
-            else:
-                r1 = ((input_data[input_index] << 8) | input_data[input_index + 1]) * 255 // max_value
-                g1 = ((input_data[input_index + 2] << 8) | input_data[input_index + 3]) * 255 // max_value
-                b1 = ((input_data[input_index + 4] << 8) | input_data[input_index + 5]) * 255 // max_value
-
-                r2 = ((input_data[input_index + bottom_offset] << 8) | input_data[input_index + bottom_offset + 1]) * 255 // max_value
-                g2 = ((input_data[input_index + bottom_offset + 2] << 8) | input_data[input_index + bottom_offset + 3]) * 255 // max_value
-                b2 = ((input_data[input_index + bottom_offset + 4] << 8) | input_data[input_index + bottom_offset + 5]) * 255 // max_value
-
-                input_index += 6
-                
-            # Manual loop unrolling provides enough of a speedup here to justify the decreased readability
-
-            # Bitplane 0 (LSB)
-            output_data[bitplane_offset] = (
-                (r1 << 5) & 0b10000000 |
-                (g1 << 4) & 0b01000000 |
-                (b1 << 3) & 0b00100000 |
-                (r2 << 2) & 0b00010000 |
-                (g2 << 1) & 0b00001000 |
-                b2 & 0b00000100
-            )
-
-            # Bitplane 1
-            output_data[bitplane_offset + bitplane_size] = (
-                (r1 << 4) & 0b10000000 |
-                (g1 << 3) & 0b01000000 |
-                (b1 << 2) & 0b00100000 |
-                (r2 << 1) & 0b00010000 |
-                g2 & 0b00001000 |
-                (b2 >> 1) & 0b00000100
-            )
-
-            # Bitplane 2
-            output_data[bitplane_offset + bitplane_size * 2] = (
-                (r1 << 3) & 0b10000000 |
-                (g1 << 2) & 0b01000000 |
-                (b1 << 1) & 0b00100000 |
-                r2 & 0b00010000 |
-                (g2 >> 1) & 0b00001000 |
-                (b2 >> 2) & 0b00000100
-            )
-
-            # Bitplane 3
-            output_data[bitplane_offset + bitplane_size * 3] = (
-                (r1 << 2) & 0b10000000 |
-                (g1 << 1) & 0b01000000 |
-                b1 & 0b00100000 |
-                (r2 >> 1) & 0b00010000 |
-                (g2 >> 2) & 0b00001000 |
-                (b2 >> 3) & 0b00000100
-            )
-
-            # Bitplane 4
-            output_data[bitplane_offset + bitplane_size * 4] = (
-                (r1 << 1) & 0b10000000 |
-                g1 & 0b01000000 |
-                (b1 >> 1) & 0b00100000 |
-                (r2 >> 2) & 0b00010000 |
-                (g2 >> 3) & 0b00001000 |
-                (b2 >> 4) & 0b00000100
-            )
-
-            # Bitplane 5 (MSB)
-            output_data[bitplane_offset + bitplane_size * 5] = (
-                r1 & 0b10000000 |
-                (g1 >> 1) & 0b01000000 |
-                (b1 >> 2) & 0b00100000 |
-                (r2 >> 3) & 0b00010000 |
-                (g2 >> 4) & 0b00001000 |
-                (b2 >> 5) & 0b00000100
-            )
-
-            bitplane_offset += 1
+        load_ppm(ppm.image_data, self._bitframe_data, ppm.max_value)
 
 CLOCK_ASSERTED = const(0b10)
 LATCH_ASSERTED = const(0b01)
@@ -156,6 +44,7 @@ BOTH_DEASSERTED = const(0b00)
 OE_ASSERTED = const(0b0)
 OE_DEASSERTED = const(0b1)
 
+@micropython.native
 def create_pio_programs(
         row_origin_top: bool, 
         latch_safe_irq: int, 

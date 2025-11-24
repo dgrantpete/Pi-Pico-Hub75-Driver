@@ -1,0 +1,1 @@
+COLOR_BIT_DEPTH = 6

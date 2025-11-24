@@ -4,18 +4,11 @@
         "reportMissingModuleSource": "none"
     },
     "python.terminal.activateEnvironment": false,
-    "micropico.openOnStart": true,
     "python.analysis.typeshedPaths": [
         "~/.micropico-stubs/included"
     ],
     "python.analysis.extraPaths": [
         "~/.micropico-stubs/included"
     ],
-    "micropico.statusbarButtons": [
-        "status",
-        "run",
-        "softreset",
-        "togglepicowfs"
-    ],
-    "micropico.softResetAfterUpload": true
+    "C_Cpp.errorSquiggles": "disabled"
 }

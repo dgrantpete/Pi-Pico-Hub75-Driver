@@ -5,10 +5,36 @@
 		},
 		{
 			"path": "src"
+		},
+		{
+			"name": "Mpy Remote Workspace",
+			"uri": "pico:"
 		}
 	],
 	"settings": {
-		"micropico.syncFolder": "build"
+		"micropico.syncFolder": "pico",
+		"micropico.openOnStart": true,
+		"micropico.softResetAfterUpload": true,
+		"micropico.statusbarButtons": [
+			"status",
+			"run",
+			"softreset",
+			"togglepicowfs"
+		],
+		"micropico.pyIgnore": [
+			"**/.picowgo",
+			"**/.micropico",
+			"**/.vscode",
+			"**/.gitignore",
+			"**/.git",
+			"**/.DS_Store",
+			"**/project.pico-go",
+			"**/env",
+			"**/venv",
+			"**/.venv",
+			"**/.idea",
+			"**/natmods"
+		]
 	},
 	"extensions": {
 		"recommendations": [
