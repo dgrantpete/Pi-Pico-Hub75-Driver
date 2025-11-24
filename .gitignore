@@ -5,6 +5,8 @@ __pycache__/
 
 # MicroPython compiled files
 *.mpy
+.mpy_ld_cache/
+/pico
 
 # Distribution / packaging
 .Python
@@ -58,4 +60,7 @@ desktop.ini
 *.log
 *.sqlite
 *.db
+
+# IntelliSense stub headers (not for actual build)
+src/py/
 
