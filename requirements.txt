@@ -1,0 +1,3 @@
+ar==1.0.1
+mpy_cross==1.26.1.post2
+pyelftools==0.32
