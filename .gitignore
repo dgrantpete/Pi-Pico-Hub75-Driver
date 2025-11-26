@@ -64,3 +64,4 @@ desktop.ini
 # IntelliSense stub headers (not for actual build)
 src/py/
 
+.claude/
