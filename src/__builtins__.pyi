@@ -38,6 +38,10 @@ class PIOInstruction(PIODelayableInstruction):
 class PIODelayableInstruction:
     def __getitem__(self, delay: int): ...
 
+def wrap() -> None: ...
+
+def wrap_target() -> None: ...
+
 # nop instruction
 def nop() -> PIOInstruction: ...
 
@@ -51,6 +55,8 @@ PIOMoveSource = PIOMoveOperable | PIOMoveOperated
 def invert(to_invert: PIOMoveOperable) -> PIOMoveOperated: ...
 
 def mov(destination: PIOMoveTarget, source: PIOMoveSource) -> PIOInstruction: ...
+
+def in_(source: Any, bit_count: int) -> PIOInstruction: ...
 
 # jmp instruction
 class PIOJumpCondition: ...
@@ -103,12 +109,16 @@ pc: Final[PIOProgramCounter]
 
 osr: Final[Any]
 
-class PIOInputShiftRegister(PIOOutTarget): ...
+class PIOInputShiftRegister(PIOOutTarget, PIOMoveOperable): ...
 isr: Final[PIOInputShiftRegister]
+
+null: Final[Any]
 
 # ----- PIO jmp conditions -----
 x_dec: Final[PIOJumpCondition]
 y_dec: Final[PIOJumpCondition]
+not_x: Final[PIOJumpCondition]
+not_y: Final[PIOJumpCondition]
 x_not_y: Final[PIOJumpCondition]
 pin: Final[PIOJumpCondition]
 osre: Final[PIOJumpCondition]
