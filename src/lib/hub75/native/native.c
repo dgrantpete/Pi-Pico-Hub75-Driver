@@ -94,15 +94,10 @@ static void load_ppm_kernel(
         const uint32_t g2 = scale_channel(g2_raw, scale, max_value);
         const uint32_t b2 = scale_channel(b2_raw, scale, max_value);
 
-        // ---- 3) Pack 6 planes in a loop (readable version) ----
-        //
-        // Your Python picks bits 7..2 of each scaled channel as planes 5..0.
-        // So plane p uses bit (p + 2). We shift that bit down to 0/1,
-        // then multiply by the output-bit mask.
         uint8_t *out = output_data + bitplane_offset;
 
         for (size_t p = 0; p < COLOR_BIT_DEPTH; p++) {
-            const size_t shift = p + 2;  // p=0 -> bit2 (LSB plane), p=5 -> bit7 (MSB plane)
+            const size_t shift = p + (8 - COLOR_BIT_DEPTH);
 
             uint8_t packed = 0;
             packed |= ((r1 >> shift) & 1u) * R1_BIT;
