@@ -94,6 +94,20 @@ static void load_rgb565_kernel(
     }
 }
 
+static mp_obj_t clear(mp_obj_t buffer_obj) {
+    mp_buffer_info_t buffer;
+
+    mp_get_buffer_raise(buffer_obj, &buffer, MP_BUFFER_WRITE);
+
+    uint8_t *data = (uint8_t *)buffer.buf;
+
+    for (size_t index = 0; index < buffer.len; index++) {
+        data[index] = 0;
+    }
+    
+    return mp_const_none;
+}
+
 static mp_obj_t load_rgb888(mp_obj_t input_obj, mp_obj_t output_obj) {
     mp_buffer_info_t input_buffer;
     mp_buffer_info_t output_buffer;
@@ -148,12 +162,14 @@ static mp_obj_t load_rgb565(mp_obj_t input_obj, mp_obj_t output_obj) {
 
 static MP_DEFINE_CONST_FUN_OBJ_2(load_rgb888_obj, load_rgb888);
 static MP_DEFINE_CONST_FUN_OBJ_2(load_rgb565_obj, load_rgb565);
+static MP_DEFINE_CONST_FUN_OBJ_1(clear_obj, clear);
 
 mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *args) {
     MP_DYNRUNTIME_INIT_ENTRY;
 
     mp_store_global(MP_QSTR_load_rgb888, MP_OBJ_FROM_PTR(&load_rgb888_obj));
     mp_store_global(MP_QSTR_load_rgb565, MP_OBJ_FROM_PTR(&load_rgb565_obj));
+    mp_store_global(MP_QSTR_clear, MP_OBJ_FROM_PTR(&clear_obj));
 
     MP_DYNRUNTIME_INIT_EXIT;
 }
