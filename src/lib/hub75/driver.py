@@ -4,8 +4,7 @@ import machine
 import uctypes
 from array import array
 from lib.hub75.constants import COLOR_BIT_DEPTH
-from lib.hub75.image import PPMImage
-from lib.hub75.native import load_ppm
+from lib.hub75.native import load_rgb888, load_rgb565
 
 _PIO_PROGRAM_DATA_INDEX = const(0)
 _PIO_PROGRAM_BUFFER_SIZE = const(32)
@@ -37,11 +36,11 @@ class Hub75Driver:
         ):
         self._width = width
         self._height = height
-        self._address_count = height // 2
+        address_count = height // 2
 
         self._buffers = [
-            bytearray((width * self._address_count) * COLOR_BIT_DEPTH),
-            bytearray((width * self._address_count) * COLOR_BIT_DEPTH)
+            bytearray((width * address_count) * COLOR_BIT_DEPTH),
+            bytearray((width * address_count) * COLOR_BIT_DEPTH)
         ]
 
         self._active_buffer_index = 0
@@ -50,7 +49,7 @@ class Hub75Driver:
             row_origin_top, 
             latch_safe_irq,
             latch_complete_irq,
-            self._address_count,
+            address_count,
             clocks_per_address=width
         )
 
@@ -110,7 +109,7 @@ class Hub75Driver:
             ),
             write=self._data_clocker_state_machine,
             read=self._active_buffer,
-            count=len(self._active_buffer) // 4
+            count=len(self._active_buffer) // _DMA_32BIT_TRANSFER_SIZE
         )
 
         self._control_flow_dma.config(
@@ -138,22 +137,12 @@ class Hub75Driver:
         self._address_manager_state_machine.active(0)
 
     @micropython.native
-    def load_ppm(self, ppm: PPMImage):
-        if ppm.width != self._width or ppm.height != self._height:
-            raise ValueError(f"Unexpected PPM dimensions: expected {(self._width, self._height)}, got {(ppm.width, ppm.height)}")
-        
-        if ppm.magic_number != 'P6':
-            raise ValueError(f"Unsupported PPM format: {ppm.magic_number!r}, only 'P6' is currently supported")
-        
-        if ppm.max_value is None:
-            raise ValueError("PPM max value is not defined")
-        
-        expected_byte_count = (2 if ppm.max_value >= 256 else 1) * ppm.width * ppm.height * 3
+    def load_rgb888(self, rgb888_data: memoryview | bytes | bytearray):
+        load_rgb888(rgb888_data, self._inactive_buffer)
 
-        if len(ppm.image_data) != expected_byte_count:
-            raise ValueError(f"Unexpected PPM data byte count: expected {expected_byte_count}, got {len(ppm.image_data)}")
-
-        load_ppm(ppm.image_data, self._inactive_buffer, ppm.max_value)
+    @micropython.native
+    def load_rgb565(self, rgb565_data: memoryview | bytes | bytearray):
+        load_rgb565(rgb565_data, self._inactive_buffer)
 
     @micropython.native
     @staticmethod

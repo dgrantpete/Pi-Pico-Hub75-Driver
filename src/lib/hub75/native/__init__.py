@@ -22,10 +22,10 @@ def _get_arch():
 _arch = _get_arch()
 
 if _arch == 'armv6m':
-    from lib.hub75.native.armv6m import load_ppm # type: ignore
+    from lib.hub75.native.armv6m import load_rgb888, load_rgb565 # type: ignore
 elif _arch == 'armv7emsp':
-    from lib.hub75.native.armv7emsp import load_ppm # type: ignore
+    from lib.hub75.native.armv7emsp import load_rgb888, load_rgb565 # type: ignore
 else:
     raise ImportError(f"hub75.native is not supported on architecture: {_arch!r}")
 
-__all__ = ['load_ppm']
+__all__ = ['load_rgb888', 'load_rgb565']
