@@ -4,7 +4,7 @@ import machine
 import uctypes
 from array import array
 from lib.hub75.constants import COLOR_BIT_DEPTH
-from lib.hub75.native import load_rgb888, load_rgb565
+from lib.hub75.native import clear, load_rgb888, load_rgb565
 
 _PIO_PROGRAM_DATA_INDEX = const(0)
 _PIO_PROGRAM_BUFFER_SIZE = const(32)
@@ -45,7 +45,7 @@ class Hub75Driver:
 
         self._active_buffer_index = 0
 
-        (address_manager_pio, data_clocker_pio) = self.__class__.create_pio_programs(
+        (address_manager_pio, data_clocker_pio) = self.__class__._create_pio_programs(
             row_origin_top, 
             latch_safe_irq,
             latch_complete_irq,
@@ -53,10 +53,10 @@ class Hub75Driver:
             clocks_per_address=width
         )
 
-        address_manager_pio_size = self.__class__.get_pio_program_length(address_manager_pio)
-        data_clocker_pio_size = self.__class__.get_pio_program_length(data_clocker_pio)
+        address_manager_pio_size = self.__class__._get_pio_program_length(address_manager_pio)
+        data_clocker_pio_size = self.__class__._get_pio_program_length(data_clocker_pio)
 
-        padding_pio = self.__class__.create_padding_pio_program(
+        padding_pio = self.__class__._create_padding_pio_program(
             _PIO_PROGRAM_BUFFER_SIZE - address_manager_pio_size - data_clocker_pio_size
         )
 
@@ -105,7 +105,7 @@ class Hub75Driver:
                 inc_read=True,
                 inc_write=False,
                 chain_to=self._control_flow_dma.channel, # type: ignore
-                treq_sel=self.__class__.get_pio_data_request_index(pio_block_id, data_state_machine_id)
+                treq_sel=self.__class__._get_pio_data_request_index(pio_block_id, data_state_machine_id)
             ),
             write=self._data_clocker_state_machine,
             read=self._active_buffer,
@@ -123,6 +123,16 @@ class Hub75Driver:
             read=self._active_buffer_address_pointer,
             write=self._data_dma.registers[_DMA_READ_ADDRESS_TRIGGER_INDEX:_DMA_READ_ADDRESS_TRIGGER_INDEX+1] # type: ignore
         )
+
+    @property
+    @micropython.native
+    def width(self) -> int:
+        return self._width
+    
+    @property
+    @micropython.native
+    def height(self) -> int:
+        return self._height
 
     @micropython.native
     def start(self):
@@ -145,14 +155,18 @@ class Hub75Driver:
         load_rgb565(rgb565_data, self._inactive_buffer)
 
     @micropython.native
-    @staticmethod
-    def get_pio_data_request_index(pio_block_id: int, state_machine_id: int) -> int:
-        return (pio_block_id << 3) | (state_machine_id & 0b11)
+    def clear(self):
+        clear(self._inactive_buffer)
 
     @micropython.native
     def flip(self):
         self._active_buffer_index = 1 - self._active_buffer_index
         self._active_buffer_address_pointer[0] = uctypes.addressof(self._active_buffer)
+
+    @micropython.native
+    @staticmethod
+    def _get_pio_data_request_index(pio_block_id: int, state_machine_id: int) -> int:
+        return (pio_block_id << 3) | (state_machine_id & 0b11)
 
     @property
     def _active_buffer(self) -> bytearray:
@@ -164,7 +178,7 @@ class Hub75Driver:
 
     @staticmethod
     @micropython.native
-    def create_pio_programs(
+    def _create_pio_programs(
         row_origin_top: bool, 
         latch_safe_irq: int, 
         latch_complete_irq: int,
@@ -260,12 +274,12 @@ class Hub75Driver:
     
     @staticmethod
     @micropython.native
-    def get_pio_program_length(program) -> int:
+    def _get_pio_program_length(program) -> int:
         return len(program[_PIO_PROGRAM_DATA_INDEX])
     
     @staticmethod
     @micropython.native
-    def create_padding_pio_program(size: int):
+    def _create_padding_pio_program(size: int):
 
         @rp2.asm_pio()
         def padding_pio():
