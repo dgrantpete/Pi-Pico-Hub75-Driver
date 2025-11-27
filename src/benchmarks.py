@@ -1,41 +1,60 @@
 """
-Hub75 Pipeline Benchmark Suite
+Hub75Driver Benchmark Suite
 
-Comprehensive benchmarking for the Hub75 display driver pipeline.
-Tests synthetic PPM data through parsing and BitPlane loading with buffer reuse.
+Comprehensive benchmarking for the Hub75Driver with RGB888 and RGB565 loading.
+Tests synthetic RGB data through the driver's loading methods.
 """
 
 import gc
 import time
 import urandom
-from lib.hub75.parser import parse_ppm_image
-from lib.hub75.display import BitPlanes
+import machine
+from lib.hub75.driver import Hub75Driver
 
 
 # ============================================================================
-# Synthetic PPM Data Generator
+# Synthetic RGB Data Generators
 # ============================================================================
 
-def generate_ppm_data(width, height):
+def generate_rgb888_data(width, height):
     """
-    Generate synthetic PPM P6 format data in memory.
+    Generate synthetic RGB888 format data in memory.
 
     Args:
         width: Image width in pixels
         height: Image height in pixels
 
     Returns:
-        bytes: Binary PPM data ready for parsing
+        bytearray: RGB888 data (3 bytes per pixel: R, G, B)
     """
-    header = f"P6\n{width} {height}\n255\n".encode('ascii')
-
-    # Generate random RGB data
     pixel_count = width * height
     rgb_data = bytearray(pixel_count * 3)
     for i in range(len(rgb_data)):
         rgb_data[i] = urandom.getrandbits(8)
 
-    return bytes(header + rgb_data)
+    return rgb_data
+
+
+def generate_rgb565_data(width, height):
+    """
+    Generate synthetic RGB565 format data in memory.
+
+    Args:
+        width: Image width in pixels
+        height: Image height in pixels
+
+    Returns:
+        bytearray: RGB565 data (2 bytes per pixel: 5R 6G 5B)
+    """
+    pixel_count = width * height
+    rgb_data = bytearray(pixel_count * 2)
+    for i in range(0, len(rgb_data), 2):
+        # Generate random 16-bit RGB565 values
+        value = urandom.getrandbits(16)
+        rgb_data[i] = value & 0xFF
+        rgb_data[i + 1] = (value >> 8) & 0xFF
+
+    return rgb_data
 
 
 # ============================================================================
@@ -77,90 +96,13 @@ class MemoryTracker:
 # Individual Step Benchmarks
 # ============================================================================
 
-def benchmark_ppm_parsing(ppm_data, iterations):
+def benchmark_rgb888_loading(driver, rgb888_data, iterations):
     """
-    Benchmark PPM parsing step.
+    Benchmark RGB888 loading through Hub75Driver.
 
     Args:
-        ppm_data: Binary PPM data
-        iterations: Number of test iterations
-
-    Returns:
-        tuple: (timings_us, memory_deltas, last_result)
-    """
-    timings = []
-    memory_deltas = []
-    result = None
-
-    for _ in range(iterations):
-        mem_tracker = MemoryTracker()
-        timer = BenchmarkTimer()
-
-        with mem_tracker:
-            with timer:
-                result = parse_ppm_image(ppm_data)
-
-        timings.append(timer.elapsed_us)
-        memory_deltas.append(mem_tracker.delta)
-
-        # Clean up for next iteration
-        del result
-        gc.collect()
-
-    # Keep last result for pipeline continuity
-    result = parse_ppm_image(ppm_data)
-    return timings, memory_deltas, result
-
-
-def benchmark_bitplane_loading(ppm_image, iterations):
-    """
-    Benchmark BitPlane loading with buffer reuse (includes color scaling and encoding).
-
-    Creates a single BitPlanes object and reuses it for all iterations,
-    measuring the performance of the in-place load_ppm() operation.
-
-    Args:
-        ppm_image: PPMImage object
-        iterations: Number of test iterations
-
-    Returns:
-        tuple: (timings_us, memory_deltas, bitplanes_object)
-    """
-    timings = []
-    memory_deltas = []
-
-    # Create BitPlanes once - this is the buffer reuse pattern
-    bitplanes = BitPlanes(ppm_image.width, ppm_image.height)
-
-    for _ in range(iterations):
-        mem_tracker = MemoryTracker()
-        timer = BenchmarkTimer()
-
-        with mem_tracker:
-            with timer:
-                bitplanes.load_ppm(ppm_image)
-
-        timings.append(timer.elapsed_us)
-        memory_deltas.append(mem_tracker.delta)
-
-    return timings, memory_deltas, bitplanes
-
-
-# ============================================================================
-# Full Pipeline Benchmark
-# ============================================================================
-
-def benchmark_full_pipeline(ppm_data, width, height, iterations):
-    """
-    Benchmark complete pipeline: PPM bytes -> BitPlanes with buffer reuse.
-
-    Creates BitPlanes once and reuses it for all iterations to demonstrate
-    the performance benefit of buffer reuse.
-
-    Args:
-        ppm_data: Binary PPM data
-        width: Image width
-        height: Image height
+        driver: Hub75Driver instance
+        rgb888_data: RGB888 format data
         iterations: Number of test iterations
 
     Returns:
@@ -169,8 +111,34 @@ def benchmark_full_pipeline(ppm_data, width, height, iterations):
     timings = []
     memory_deltas = []
 
-    # Create BitPlanes once for buffer reuse
-    bitplanes = BitPlanes(width, height)
+    for _ in range(iterations):
+        mem_tracker = MemoryTracker()
+        timer = BenchmarkTimer()
+
+        with mem_tracker:
+            with timer:
+                driver.load_rgb888(rgb888_data)
+
+        timings.append(timer.elapsed_us)
+        memory_deltas.append(mem_tracker.delta)
+
+    return timings, memory_deltas
+
+
+def benchmark_rgb565_loading(driver, rgb565_data, iterations):
+    """
+    Benchmark RGB565 loading through Hub75Driver.
+
+    Args:
+        driver: Hub75Driver instance
+        rgb565_data: RGB565 format data
+        iterations: Number of test iterations
+
+    Returns:
+        tuple: (timings_us, memory_deltas)
+    """
+    timings = []
+    memory_deltas = []
 
     for _ in range(iterations):
         mem_tracker = MemoryTracker()
@@ -178,15 +146,73 @@ def benchmark_full_pipeline(ppm_data, width, height, iterations):
 
         with mem_tracker:
             with timer:
-                ppm_image = parse_ppm_image(ppm_data)
-                bitplanes.load_ppm(ppm_image)
+                driver.load_rgb565(rgb565_data)
 
         timings.append(timer.elapsed_us)
         memory_deltas.append(mem_tracker.delta)
 
-        # Clean up PPM image for next iteration
-        del ppm_image
-        gc.collect()
+    return timings, memory_deltas
+
+
+def benchmark_flip_operation(driver, iterations):
+    """
+    Benchmark buffer flip operation.
+
+    Args:
+        driver: Hub75Driver instance
+        iterations: Number of test iterations
+
+    Returns:
+        tuple: (timings_us, memory_deltas)
+    """
+    timings = []
+    memory_deltas = []
+
+    for _ in range(iterations):
+        mem_tracker = MemoryTracker()
+        timer = BenchmarkTimer()
+
+        with mem_tracker:
+            with timer:
+                driver.flip()
+
+        timings.append(timer.elapsed_us)
+        memory_deltas.append(mem_tracker.delta)
+
+    return timings, memory_deltas
+
+
+def benchmark_load_and_flip(driver, rgb888_data, rgb565_data, iterations, use_rgb888=True):
+    """
+    Benchmark combined load + flip operation (simulating frame updates).
+
+    Args:
+        driver: Hub75Driver instance
+        rgb888_data: RGB888 format data
+        rgb565_data: RGB565 format data
+        iterations: Number of test iterations
+        use_rgb888: Use RGB888 if True, RGB565 if False
+
+    Returns:
+        tuple: (timings_us, memory_deltas)
+    """
+    timings = []
+    memory_deltas = []
+
+    for _ in range(iterations):
+        mem_tracker = MemoryTracker()
+        timer = BenchmarkTimer()
+
+        with mem_tracker:
+            with timer:
+                if use_rgb888:
+                    driver.load_rgb888(rgb888_data)
+                else:
+                    driver.load_rgb565(rgb565_data)
+                driver.flip()
+
+        timings.append(timer.elapsed_us)
+        memory_deltas.append(mem_tracker.delta)
 
     return timings, memory_deltas
 
@@ -275,48 +301,69 @@ def print_summary_report(width, height, iterations, results):
     datetime_str = get_datetime_string()
 
     print("=" * 70)
-    print("HUB75 PIPELINE BENCHMARK RESULTS")
+    print("HUB75DRIVER BENCHMARK RESULTS")
     print("=" * 70)
     print(f"\nRun Time: {datetime_str}")
     print(f"\nConfiguration:")
     print(f"  Image Size: {width}x{height} ({pixel_count:,} pixels)")
     print(f"  Iterations: {iterations}")
 
-    # Individual step results
+    # Individual operation results
     print(f"\n{'-' * 70}")
-    print("INDIVIDUAL STEP PERFORMANCE")
+    print("INDIVIDUAL OPERATION PERFORMANCE")
     print('-' * 70)
 
-    print_step_results("1. PPM Parsing",
-                      results['parsing_time'],
-                      results['parsing_memory'])
+    print_step_results("1. RGB888 Loading",
+                      results['rgb888_time'],
+                      results['rgb888_memory'])
 
-    print_step_results("2. BitPlane Loading (with buffer reuse)",
-                      results['bitplane_time'],
-                      results['bitplane_memory'])
+    print_step_results("2. RGB565 Loading",
+                      results['rgb565_time'],
+                      results['rgb565_memory'])
 
-    # Full pipeline results
+    print_step_results("3. Buffer Flip",
+                      results['flip_time'],
+                      results['flip_memory'])
+
+    # Combined operation results
     print(f"\n{'-' * 70}")
-    print("FULL PIPELINE PERFORMANCE")
+    print("COMBINED OPERATION PERFORMANCE")
     print('-' * 70)
 
-    print_step_results("Complete Pipeline (PPM -> BitPlanes)",
-                      results['pipeline_time'],
-                      results['pipeline_memory'])
+    print_step_results("RGB888 Load + Flip",
+                      results['rgb888_flip_time'],
+                      results['rgb888_flip_memory'])
+
+    print_step_results("RGB565 Load + Flip",
+                      results['rgb565_flip_time'],
+                      results['rgb565_flip_memory'])
 
     # Throughput metrics
     print(f"\n{'-' * 70}")
     print("THROUGHPUT METRICS")
     print('-' * 70)
 
-    avg_pipeline_us = results['pipeline_time']['avg']
-    avg_pipeline_s = avg_pipeline_us / 1000000
-    fps = 1 / avg_pipeline_s if avg_pipeline_s > 0 else 0
-    pixels_per_second = pixel_count / avg_pipeline_s if avg_pipeline_s > 0 else 0
+    # RGB888 throughput
+    avg_rgb888_flip_us = results['rgb888_flip_time']['avg']
+    avg_rgb888_flip_s = avg_rgb888_flip_us / 1000000
+    fps_rgb888 = 1 / avg_rgb888_flip_s if avg_rgb888_flip_s > 0 else 0
+    pixels_per_second_rgb888 = pixel_count / avg_rgb888_flip_s if avg_rgb888_flip_s > 0 else 0
 
-    print(f"\nAverage Frame Processing Time: {format_duration(avg_pipeline_us)}")
-    print(f"Estimated Max FPS: {fps:.2f}")
-    print(f"Pixel Throughput: {pixels_per_second:,.0f} pixels/second")
+    print(f"\nRGB888 Performance:")
+    print(f"  Average Frame Update Time: {format_duration(avg_rgb888_flip_us)}")
+    print(f"  Estimated Max FPS: {fps_rgb888:.2f}")
+    print(f"  Pixel Throughput: {pixels_per_second_rgb888:,.0f} pixels/second")
+
+    # RGB565 throughput
+    avg_rgb565_flip_us = results['rgb565_flip_time']['avg']
+    avg_rgb565_flip_s = avg_rgb565_flip_us / 1000000
+    fps_rgb565 = 1 / avg_rgb565_flip_s if avg_rgb565_flip_s > 0 else 0
+    pixels_per_second_rgb565 = pixel_count / avg_rgb565_flip_s if avg_rgb565_flip_s > 0 else 0
+
+    print(f"\nRGB565 Performance:")
+    print(f"  Average Frame Update Time: {format_duration(avg_rgb565_flip_us)}")
+    print(f"  Estimated Max FPS: {fps_rgb565:.2f}")
+    print(f"  Pixel Throughput: {pixels_per_second_rgb565:,.0f} pixels/second")
 
     # Memory summary
     print(f"\n{'-' * 70}")
@@ -341,13 +388,14 @@ def print_compact_report(width, height, iterations, results):
         iterations: Number of iterations run
         results: Dictionary of benchmark results
     """
-    pixel_count = width * height
     datetime_str = get_datetime_string()
 
     print(f"[{datetime_str}] {width}x{height} ({iterations} iterations)")
-    print(f"  PPM Parsing:       {results['parsing_time']['avg'] / 1000:.2f} ms")
-    print(f"  BitPlane Loading:  {results['bitplane_time']['avg'] / 1000:.2f} ms")
-    print(f"  Full Pipeline:     {results['pipeline_time']['avg'] / 1000:.2f} ms")
+    print(f"  RGB888 Load:       {results['rgb888_time']['avg'] / 1000:.2f} ms")
+    print(f"  RGB565 Load:       {results['rgb565_time']['avg'] / 1000:.2f} ms")
+    print(f"  Buffer Flip:       {results['flip_time']['avg'] / 1000:.2f} ms")
+    print(f"  RGB888 Load+Flip:  {results['rgb888_flip_time']['avg'] / 1000:.2f} ms ({1000000 / results['rgb888_flip_time']['avg']:.1f} FPS)")
+    print(f"  RGB565 Load+Flip:  {results['rgb565_flip_time']['avg'] / 1000:.2f} ms ({1000000 / results['rgb565_flip_time']['avg']:.1f} FPS)")
 
     gc.collect()
     print(f"  Memory: {format_memory(gc.mem_alloc())} alloc, {format_memory(gc.mem_free())} free")
@@ -357,38 +405,68 @@ def print_compact_report(width, height, iterations, results):
 # Main Benchmark Runner
 # ============================================================================
 
-def run_benchmark(width=64, height=32, iterations=50, verbose=True):
+def run_benchmark(
+    width=64,
+    height=32,
+    iterations=50,
+    verbose=True,
+    base_data_pin=0,
+    base_clock_pin=6,
+    base_address_pin=7,
+    output_enable_pin=11
+):
     """
-    Run complete benchmark suite for Hub75 pipeline.
+    Run complete benchmark suite for Hub75Driver.
 
     Args:
         width: Image width in pixels (default: 64)
         height: Image height in pixels (default: 32)
         iterations: Number of iterations per test (default: 50)
         verbose: Show detailed report (True) or compact report (False) (default: True)
+        base_data_pin: First data pin (default: 0, uses pins 0-5 for R1,G1,B1,R2,G2,B2)
+        base_clock_pin: Clock pin (default: 6)
+        base_address_pin: First address pin (default: 7, uses pins 7-10 for A,B,C,D)
+        output_enable_pin: Output enable pin (default: 11)
 
     Example:
         >>> run_benchmark(width=64, height=32, iterations=100)
         >>> run_benchmark(width=128, height=64, iterations=50, verbose=False)
     """
+    # Create Hub75Driver instance
+    driver = Hub75Driver(
+        width=width,
+        height=height,
+        base_data_pin=machine.Pin(base_data_pin),
+        base_clock_pin=machine.Pin(base_clock_pin),
+        base_address_pin=machine.Pin(base_address_pin),
+        output_enable_pin=machine.Pin(output_enable_pin)
+    )
+
     # Generate synthetic data
-    ppm_data = generate_ppm_data(width, height)
+    rgb888_data = generate_rgb888_data(width, height)
+    rgb565_data = generate_rgb565_data(width, height)
 
-    # Run individual step benchmarks
-    parsing_times, parsing_mem, ppm_image = benchmark_ppm_parsing(ppm_data, iterations)
-    bitplane_times, bitplane_mem, bitplanes = benchmark_bitplane_loading(ppm_image, iterations)
+    # Run individual operation benchmarks
+    rgb888_times, rgb888_mem = benchmark_rgb888_loading(driver, rgb888_data, iterations)
+    rgb565_times, rgb565_mem = benchmark_rgb565_loading(driver, rgb565_data, iterations)
+    flip_times, flip_mem = benchmark_flip_operation(driver, iterations)
 
-    # Run full pipeline benchmark
-    pipeline_times, pipeline_mem = benchmark_full_pipeline(ppm_data, width, height, iterations)
+    # Run combined operation benchmarks
+    rgb888_flip_times, rgb888_flip_mem = benchmark_load_and_flip(driver, rgb888_data, rgb565_data, iterations, use_rgb888=True)
+    rgb565_flip_times, rgb565_flip_mem = benchmark_load_and_flip(driver, rgb888_data, rgb565_data, iterations, use_rgb888=False)
 
     # Calculate statistics
     results = {
-        'parsing_time': calculate_stats(parsing_times),
-        'parsing_memory': calculate_stats(parsing_mem),
-        'bitplane_time': calculate_stats(bitplane_times),
-        'bitplane_memory': calculate_stats(bitplane_mem),
-        'pipeline_time': calculate_stats(pipeline_times),
-        'pipeline_memory': calculate_stats(pipeline_mem),
+        'rgb888_time': calculate_stats(rgb888_times),
+        'rgb888_memory': calculate_stats(rgb888_mem),
+        'rgb565_time': calculate_stats(rgb565_times),
+        'rgb565_memory': calculate_stats(rgb565_mem),
+        'flip_time': calculate_stats(flip_times),
+        'flip_memory': calculate_stats(flip_mem),
+        'rgb888_flip_time': calculate_stats(rgb888_flip_times),
+        'rgb888_flip_memory': calculate_stats(rgb888_flip_mem),
+        'rgb565_flip_time': calculate_stats(rgb565_flip_times),
+        'rgb565_flip_memory': calculate_stats(rgb565_flip_mem),
     }
 
     # Print summary report
@@ -398,7 +476,8 @@ def run_benchmark(width=64, height=32, iterations=50, verbose=True):
         print_compact_report(width, height, iterations, results)
 
     # Cleanup
-    del ppm_data, ppm_image, bitplanes
+    driver.stop()
+    del driver, rgb888_data, rgb565_data
     gc.collect()
 
 
@@ -406,19 +485,37 @@ def run_benchmark(width=64, height=32, iterations=50, verbose=True):
 # Quick Test Configurations
 # ============================================================================
 
-def quick_test(verbose=True):
-    """Quick benchmark with small image and few iterations."""
-    run_benchmark(width=32, height=32, iterations=10, verbose=verbose)
+def quick_test(verbose=True, **pin_config):
+    """
+    Quick benchmark with small image and few iterations.
+
+    Args:
+        verbose: Show detailed report
+        **pin_config: Optional pin configuration (base_data_pin, base_clock_pin, etc.)
+    """
+    run_benchmark(width=32, height=32, iterations=10, verbose=verbose, **pin_config)
 
 
-def standard_test(verbose=True):
-    """Standard benchmark with typical HUB75 panel size."""
-    run_benchmark(width=64, height=32, iterations=50, verbose=verbose)
+def standard_test(verbose=True, **pin_config):
+    """
+    Standard benchmark with typical HUB75 panel size.
+
+    Args:
+        verbose: Show detailed report
+        **pin_config: Optional pin configuration (base_data_pin, base_clock_pin, etc.)
+    """
+    run_benchmark(width=64, height=32, iterations=50, verbose=verbose, **pin_config)
 
 
-def stress_test(verbose=True):
-    """Stress test with large image and many iterations."""
-    run_benchmark(width=128, height=64, iterations=100, verbose=verbose)
+def stress_test(verbose=True, **pin_config):
+    """
+    Stress test with large image and many iterations.
+
+    Args:
+        verbose: Show detailed report
+        **pin_config: Optional pin configuration (base_data_pin, base_clock_pin, etc.)
+    """
+    run_benchmark(width=128, height=64, iterations=100, verbose=verbose, **pin_config)
 
 
 # ============================================================================
