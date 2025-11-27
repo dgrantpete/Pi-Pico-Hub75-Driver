@@ -26,8 +26,8 @@ parser.add_argument(
     choices=["armv7emsp", "armv6m", "all"],
     default="all",
     help="""
-    Target architecture (defaults to 'all'): setting specific architecture allows more .py files to be compiled.
-    RP2040 uses 'armv6m', RP2350 uses 'armv7emsp'.
+    Target architecture (defaults to 'all'): setting specific architecture allows more .py files to be compiled
+    RP2040 uses 'armv6m', RP2350 uses 'armv7emsp'
     """
 )
 
@@ -36,6 +36,13 @@ parser.add_argument(
     nargs='*',
     default=['-O2', '-funroll-loops', '-finline-small-functions'],
     help="Additional C compiler flags (default flags tuned for optimal performance on RP2040 and RP2350)"
+)
+
+parser.add_argument(
+    "--debug-files",
+    nargs='*',
+    default=['*/tests/*', '*/benchmarks.py'],
+    help="List of file patterns which will be ignored in release builds (default: tests and benchmarks)"
 )
 
 args = parser.parse_args()
@@ -82,6 +89,10 @@ for file in source_directory.rglob('*.mpy'):
     shutil.move(file, output_path)
 
 for file in source_directory.rglob('*.py'):
+    if args.configuration == 'release' and any(file.match(pattern) for pattern in args.debug_files):
+        print(f"Skipping '{file}' in release build")
+        continue
+
     relative_path = file.relative_to(source_directory)
 
     output_path = pico_directory / relative_path
@@ -107,7 +118,7 @@ for file in source_directory.rglob('*.py'):
             check=True,
             text=True
         )
-        
+
     except subprocess.CalledProcessError as e:
         # If we can't compile, we just copy the original .py file over
         if 'invalid arch' in e.stderr:
