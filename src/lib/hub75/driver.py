@@ -109,7 +109,7 @@ class Hub75Driver:
             ),
             write=self._data_clocker_state_machine,
             read=self._active_buffer,
-            count=len(self._active_buffer) // _DMA_32BIT_TRANSFER_SIZE
+            count=len(self._active_buffer) // 4
         )
 
         self._control_flow_dma.config(
