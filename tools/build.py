@@ -16,8 +16,8 @@ parser.add_argument(
     "-c",
     "--configuration",
     choices=["debug", "release"],
-    default="release",
-    help="Build configuration (defaults to 'release')"
+    default="debug",
+    help="Build configuration (defaults to 'debug')"
 )
 
 parser.add_argument(
@@ -41,7 +41,7 @@ parser.add_argument(
 parser.add_argument(
     "--debug-files",
     nargs='*',
-    default=['*/tests/*', '*/benchmarks.py'],
+    default=['*/tests/*', '*/benchmarks.py', '*/unittest/*'],
     help="List of file patterns which will be ignored in release builds (default: tests and benchmarks)"
 )
 
