@@ -1,5 +1,8 @@
 import sys
 
+# The values defined here are also passed in as C macros at build time,
+# so changing them will require a rebuild.
+
 COLOR_BIT_DEPTH = 8
 
 if sys.implementation.name == 'micropython':

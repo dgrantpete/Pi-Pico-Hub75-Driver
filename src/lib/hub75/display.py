@@ -1,6 +1,6 @@
 import micropython
 import framebuf
-from lib.hub75.driver import Hub75Driver
+from hub75.driver import Hub75Driver
 
 class Hub75Display:
     @micropython.native

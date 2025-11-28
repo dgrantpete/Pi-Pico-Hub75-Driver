@@ -3,8 +3,8 @@ import rp2
 import machine
 import uctypes
 from array import array
-from lib.hub75.constants import COLOR_BIT_DEPTH
-from lib.hub75.native import clear, load_rgb888, load_rgb565
+from hub75.constants import COLOR_BIT_DEPTH
+from hub75.native import clear, load_rgb888, load_rgb565
 
 _PIO_PROGRAM_DATA_INDEX = const(0)
 _PIO_PROGRAM_BUFFER_SIZE = const(32)
