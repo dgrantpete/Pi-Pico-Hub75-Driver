@@ -7,13 +7,15 @@
 #error "'COLOR_BIT_DEPTH' must be defined"
 #endif
 
+// The least significant bits correpond with the lowest pin numbers
+// e.g. R1 is connected to pin 0, G1 to pin 1, B1 to pin 2, R2 to pin 3, etc.
 enum {
-    R1_BIT = 0b10000000,
-    G1_BIT = 0b01000000,
-    B1_BIT = 0b00100000,
-    R2_BIT = 0b00010000,
-    G2_BIT = 0b00001000,
-    B2_BIT = 0b00000100
+    R1_BIT = 0b000001,
+    G1_BIT = 0b000010,
+    B1_BIT = 0b000100,
+    R2_BIT = 0b001000,
+    G2_BIT = 0b010000,
+    B2_BIT = 0b100000
 };
 
 static void pack_pixel_pair(
