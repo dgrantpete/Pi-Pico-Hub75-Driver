@@ -75,7 +75,7 @@ def wait(polarity: Literal[1] | Literal[0], source: PIOWaitSource, index: int) -
 
 # irq instruction
 class PIOIRQ(PIOWaitSource): 
-    def __call__(self, index: int) -> PIOInstruction: ...
+    def __call__(self, *args) -> PIOInstruction: ...
 
 irq: Final[PIOIRQ]
 

@@ -9,6 +9,10 @@ from hub75.native import clear, load_rgb888, load_rgb565
 _PIO_PROGRAM_DATA_INDEX = const(0)
 _PIO_PROGRAM_BUFFER_SIZE = const(32)
 
+# Increasing this value non-linearly increases the duty cycle but decreases the refresh rate
+# This default value is a good balance between brightness and refresh rate
+_ADDRESS_MANAGER_CLOCK_DIVIDER = const(16)
+
 _DMA_READ_ADDRESS_TRIGGER_INDEX = const(15)
 
 _DMA_8BIT_TRANSFER_SIZE = const(0)
@@ -33,6 +37,7 @@ class Hub75Driver:
             row_origin_top: bool = True,
             latch_safe_irq: int = 0,
             latch_complete_irq: int = 1,
+            data_clock_frequency: int = 30_000_000
         ):
         self._width = width
         self._height = height
@@ -84,14 +89,16 @@ class Hub75Driver:
             data_state_machine_id,
             data_clocker_pio,
             out_base=base_data_pin,
-            sideset_base=base_clock_pin
+            sideset_base=base_clock_pin,
+            freq=data_clock_frequency
         )
 
         self._address_manager_state_machine = rp2.StateMachine(
             address_state_machine_id,
             address_manager_pio,
             out_base=base_address_pin,
-            sideset_base=output_enable_pin
+            sideset_base=output_enable_pin,
+            freq=data_clock_frequency // _ADDRESS_MANAGER_CLOCK_DIVIDER
         )
 
         self._active_buffer_address_pointer = array('I', [uctypes.addressof(self._active_buffer)])
@@ -101,7 +108,7 @@ class Hub75Driver:
 
         self._data_dma.config(
             ctrl=self._data_dma.pack_ctrl(
-                size=_DMA_32BIT_TRANSFER_SIZE,
+                size=_DMA_8BIT_TRANSFER_SIZE,
                 inc_read=True,
                 inc_write=False,
                 chain_to=self._control_flow_dma.channel, # type: ignore
@@ -109,7 +116,7 @@ class Hub75Driver:
             ),
             write=self._data_clocker_state_machine,
             read=self._active_buffer,
-            count=len(self._active_buffer) // 4
+            count=len(self._active_buffer)
         )
 
         self._control_flow_dma.config(
@@ -136,15 +143,9 @@ class Hub75Driver:
 
     @micropython.native
     def start(self):
-        self._address_manager_state_machine.active(1)
-        self._data_clocker_state_machine.active(1)
         self._data_dma.active(1)
-
-    @micropython.native
-    def stop(self):
-        self._data_dma.active(0)
-        self._data_clocker_state_machine.active(0)
-        self._address_manager_state_machine.active(0)
+        self._data_clocker_state_machine.active(1)
+        self._address_manager_state_machine.active(1)
 
     @micropython.native
     def load_rgb888(self, rgb888_data: memoryview | bytes | bytearray):
@@ -163,16 +164,18 @@ class Hub75Driver:
         self._active_buffer_index = 1 - self._active_buffer_index
         self._active_buffer_address_pointer[0] = uctypes.addressof(self._active_buffer)
 
-    @micropython.native
     @staticmethod
+    @micropython.native
     def _get_pio_data_request_index(pio_block_id: int, state_machine_id: int) -> int:
         return (pio_block_id << 3) | (state_machine_id & 0b11)
 
     @property
+    @micropython.native
     def _active_buffer(self) -> bytearray:
         return self._buffers[self._active_buffer_index]
     
     @property
+    @micropython.native
     def _inactive_buffer(self) -> bytearray:
         return self._buffers[1 - self._active_buffer_index]
 
@@ -193,7 +196,7 @@ class Hub75Driver:
 
         @rp2.asm_pio(
             sideset_init=rp2.PIO.OUT_HIGH,
-            out_init=[rp2.PIO.OUT_LOW] * 4,
+            out_init=[rp2.PIO.OUT_LOW] * 4
         )
         def address_manager_pio():
             # Dynamic jumps to instruction indexes 0-7 creates accumulated exponential delays for bitplane timing
@@ -238,10 +241,10 @@ class Hub75Driver:
         @rp2.asm_pio(
             sideset_init=[rp2.PIO.OUT_LOW] * 2,
             out_init=[rp2.PIO.OUT_LOW] * 6,
-            out_shiftdir=rp2.PIO.SHIFT_LEFT,
+            out_shiftdir=rp2.PIO.SHIFT_RIGHT,
             in_shiftdir=rp2.PIO.SHIFT_RIGHT,
             autopull=True,
-            pull_thresh=32,
+            pull_thresh=8,
         )
         def data_clocker_pio():
             # The largest value we can set directly into x register is 0b11111 (31)
