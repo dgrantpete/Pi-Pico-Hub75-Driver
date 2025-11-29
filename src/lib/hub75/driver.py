@@ -262,12 +262,14 @@ class Hub75Driver:
 
             in_(null, right_isr_padding)        .side(BOTH_DEASSERTED)
             wrap_target()
-            mov(x, isr)                         .side(LATCH_ASSERTED)
-            irq(latch_complete_irq)             .side(BOTH_DEASSERTED)
+            mov(x, isr)                         .side(BOTH_DEASSERTED)
             label("write_data")
             out(pins, 8)                        .side(BOTH_DEASSERTED)
             jmp(x_dec, "write_data")            .side(CLOCK_ASSERTED)
             wait(1, irq, latch_safe_irq)        .side(BOTH_DEASSERTED)
+            # The latch is triggered on the rising edge, so we can safely say that it has been latched
+            # for the IRQ even if the latch hasn't yet been deasserted
+            irq(latch_complete_irq)             .side(LATCH_ASSERTED)
             wrap()
 
         return address_manager_pio, data_clocker_pio
