@@ -1,3 +1,6 @@
 ar==1.0.1
+mpremote==1.26.1
 mpy_cross==1.26.1.post2
+platformdirs==4.5.0
 pyelftools==0.32
+pyserial==3.5
