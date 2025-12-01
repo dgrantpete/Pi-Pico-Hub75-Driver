@@ -16,8 +16,8 @@ parser.add_argument(
     "-c",
     "--configuration",
     choices=["debug", "release"],
-    default="debug",
-    help="Build configuration (defaults to 'debug')"
+    default="release",
+    help="Build configuration"
 )
 
 parser.add_argument(
@@ -43,6 +43,13 @@ parser.add_argument(
     nargs='*',
     default=['*/tests/*', '*/benchmarks.py', '*/unittest/*'],
     help="List of file patterns which will be ignored in release builds (default: tests and benchmarks)"
+)
+
+parser.add_argument(
+    "--copy-only-files",
+    nargs='*',
+    default=['*/main.py'],
+    help="List of file patterns which will always be copied without compilation"
 )
 
 args = parser.parse_args()
@@ -99,6 +106,11 @@ for file in source_directory.rglob('*.py'):
     
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
+    if any(file.match(pattern) for pattern in args.copy_only_files):
+        print(f"Copying '{file}' to '{output_path}', file marked as copy-only")
+        shutil.copy2(file, output_path)
+        continue
+
     if args.configuration == 'debug':
         print(f"Copying '{file}' to '{output_path}' without compilation for debug build")
         shutil.copy2(file, output_path)
