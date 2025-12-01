@@ -1,4 +1,4 @@
-SRC = native.c
+SRC = native.c color.c bitplanes.c effects.c
 ARCHES := armv7emsp armv6m
 MOD = $(ARCH)
 BUILD := ./build
