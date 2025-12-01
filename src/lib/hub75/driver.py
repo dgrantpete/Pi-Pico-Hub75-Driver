@@ -108,7 +108,7 @@ class Hub75Driver:
 
         self._data_dma.config(
             ctrl=self._data_dma.pack_ctrl(
-                size=_DMA_8BIT_TRANSFER_SIZE,
+                size=_DMA_32BIT_TRANSFER_SIZE,
                 inc_read=True,
                 inc_write=False,
                 chain_to=self._control_flow_dma.channel, # type: ignore
@@ -116,7 +116,7 @@ class Hub75Driver:
             ),
             write=self._data_clocker_state_machine,
             read=self._active_buffer,
-            count=len(self._active_buffer)
+            count=len(self._active_buffer) // 4
         )
 
         self._control_flow_dma.config(
@@ -244,7 +244,7 @@ class Hub75Driver:
             out_shiftdir=rp2.PIO.SHIFT_RIGHT,
             in_shiftdir=rp2.PIO.SHIFT_RIGHT,
             autopull=True,
-            pull_thresh=8,
+            pull_thresh=32,
         )
         def data_clocker_pio():
             # The largest value we can set directly into x register is 0b11111 (31)
