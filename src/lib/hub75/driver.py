@@ -5,6 +5,8 @@ import uctypes
 from array import array
 from hub75.constants import COLOR_BIT_DEPTH
 from hub75.native import clear, load_rgb888, load_rgb565
+import _thread
+import re
 
 _PIO_PROGRAM_DATA_INDEX = const(0)
 _PIO_PROGRAM_BUFFER_SIZE = const(32)
@@ -21,22 +23,26 @@ _DMA_32BIT_TRANSFER_SIZE = const(2)
 
 _DMA_UNPACED_TRANSFER_REQUEST = const(0x3F)
 
+_DATA_STATE_MACHINE_OFFSET = const(0)
+_ADDRESS_STATE_MACHINE_OFFSET = const(1)
+_LATCH_SAFE_IRQ = const(0)
+_LATCH_COMPLETE_IRQ = const(1)
+
+_PIO_INDEX_EXPRESSION = re.compile(r'PIO\((\d)\)')
+
 class Hub75Driver:
     @micropython.native
     def __init__(
-            self, 
-            width: int, 
-            height: int, 
+            self,
+            width: int,
+            height: int,
             *,
-            address_state_machine_id: int = 1,
+            pio: rp2.PIO | None = None,
             base_address_pin: machine.Pin,
             output_enable_pin: machine.Pin,
-            data_state_machine_id: int = 0,
             base_data_pin: machine.Pin,
             base_clock_pin: machine.Pin,
             row_origin_top: bool = True,
-            latch_safe_irq: int = 0,
-            latch_complete_irq: int = 1,
             data_clock_frequency: int = 30_000_000
         ):
         self._width = width
@@ -51,9 +57,7 @@ class Hub75Driver:
         self._active_buffer_index = 0
 
         (address_manager_pio, data_clocker_pio) = self.__class__._create_pio_programs(
-            row_origin_top, 
-            latch_safe_irq,
-            latch_complete_irq,
+            row_origin_top,
             address_count,
             clocks_per_address=width
         )
@@ -65,25 +69,27 @@ class Hub75Driver:
             _PIO_PROGRAM_BUFFER_SIZE - address_manager_pio_size - data_clocker_pio_size
         )
 
-        # Both state machines must be on the same PIO block to share IRQs
-        # SMs 0-3 -> PIO0, SMs 4-7 -> PIO1
-        pio_block_id = 0 if address_state_machine_id < 4 else 1
-        if (data_state_machine_id < 4) != (address_state_machine_id < 4):
-            raise ValueError("Both state machines must be on the same PIO block to share IRQs")
-        
-        pio = rp2.PIO(pio_block_id)
+        self._pio = pio if pio is not None else rp2.PIO(0)
+        self._pio_block_id = self.__class__._get_pio_index(self._pio)
+
+        data_state_machine_id = self.__class__._get_absolute_state_machine_id(
+            self._pio_block_id, _DATA_STATE_MACHINE_OFFSET
+        )
+        address_state_machine_id = self.__class__._get_absolute_state_machine_id(
+            self._pio_block_id, _ADDRESS_STATE_MACHINE_OFFSET
+        )
         
         # Clear ALL programs in this PIO so we're starting from a blank slate
-        pio.remove_program()
+        self._pio.remove_program()
 
         # PIO programs are loaded from back to front
         # We need 'address_manager' to be at offset 0 since we use dynamic jumps
         # To force this, we load a padding program first with a calculated size
         # Once this is done, we load 'data_clocker', and finally 'address_manager' so it sits at the front
 
-        pio.add_program(padding_pio)
-        pio.add_program(data_clocker_pio)
-        pio.add_program(address_manager_pio)
+        self._pio.add_program(padding_pio)
+        self._pio.add_program(data_clocker_pio)
+        self._pio.add_program(address_manager_pio)
 
         self._data_clocker_state_machine = rp2.StateMachine(
             data_state_machine_id,
@@ -103,6 +109,8 @@ class Hub75Driver:
 
         self._active_buffer_address_pointer = array('I', [uctypes.addressof(self._active_buffer)])
 
+        self._data_state_machine_offset = _DATA_STATE_MACHINE_OFFSET
+
         self._data_dma = rp2.DMA()
         self._control_flow_dma = rp2.DMA()
 
@@ -112,7 +120,8 @@ class Hub75Driver:
                 inc_read=True,
                 inc_write=False,
                 chain_to=self._control_flow_dma.channel, # type: ignore
-                treq_sel=self.__class__._get_pio_data_request_index(pio_block_id, data_state_machine_id)
+                treq_sel=self.__class__._get_pio_data_request_index(self._pio_block_id, self._data_state_machine_offset),
+                irq_quiet=True
             ),
             write=self._data_clocker_state_machine,
             read=self._active_buffer,
@@ -128,8 +137,48 @@ class Hub75Driver:
             ),
             count=1,
             read=self._active_buffer_address_pointer,
-            write=self._data_dma.registers[_DMA_READ_ADDRESS_TRIGGER_INDEX:_DMA_READ_ADDRESS_TRIGGER_INDEX+1] # type: ignore
+            write=self._data_dma.registers[_DMA_READ_ADDRESS_TRIGGER_INDEX:_DMA_READ_ADDRESS_TRIGGER_INDEX+1], # type: ignore
+            trigger=True
         )
+
+        self._data_clocker_state_machine.active(1)
+        self._address_manager_state_machine.active(1)
+
+    @micropython.native
+    def deinit(self):
+        shutdown_lock = _thread.allocate_lock()
+        shutdown_lock.acquire()
+
+        self._data_dma.irq(shutdown_lock.release)
+
+        # Cut off the ping-ponged DMAs to stop the loop
+        # Graceful stop by cutting chain rather than forcefully stopping means
+        # the DMAs are in a clean state when they are done and FIFOs are emptied
+        self._data_dma.config(
+            ctrl=self._data_dma.pack_ctrl(
+                size=_DMA_32BIT_TRANSFER_SIZE,
+                inc_read=True,
+                inc_write=False,
+                chain_to=self._data_dma.channel, # type: ignore
+                treq_sel=self.__class__._get_pio_data_request_index(self._pio_block_id, self._data_state_machine_offset),
+                irq_quiet=False # Atomically enable IRQ to fire only when chain broken
+            ),
+            write=self._data_clocker_state_machine,
+            read=self._active_buffer,
+            count=len(self._active_buffer) // 4
+        )
+
+        # Wait until we're sure the DMA has finished (and is no longer triggering the data DMA)
+        shutdown_lock.acquire()
+
+        self._data_dma.close()
+        self._control_flow_dma.close()
+
+        # Deactivate the state machines and unload their programs from the PIO block
+        self._data_clocker_state_machine.active(0)
+        self._address_manager_state_machine.active(0)
+
+        self._pio.remove_program()
 
     @property
     @micropython.native
@@ -140,12 +189,6 @@ class Hub75Driver:
     @micropython.native
     def height(self) -> int:
         return self._height
-
-    @micropython.native
-    def start(self):
-        self._data_dma.active(1)
-        self._data_clocker_state_machine.active(1)
-        self._address_manager_state_machine.active(1)
 
     @micropython.native
     def load_rgb888(self, rgb888_data: memoryview | bytes | bytearray):
@@ -166,6 +209,21 @@ class Hub75Driver:
 
     @staticmethod
     @micropython.native
+    def _get_pio_index(pio: rp2.PIO) -> int:
+        match = _PIO_INDEX_EXPRESSION.match(repr(pio))
+
+        if not match:
+            raise ValueError(f"Could not determine PIO index: '{pio!r}'")
+
+        return int(match.group(1))
+
+    @staticmethod
+    @micropython.native
+    def _get_absolute_state_machine_id(pio_block_id: int, state_machine_offset: int) -> int:
+        return pio_block_id * 4 + state_machine_offset
+
+    @staticmethod
+    @micropython.native
     def _get_pio_data_request_index(pio_block_id: int, state_machine_id: int) -> int:
         return (pio_block_id << 3) | (state_machine_id & 0b11)
 
@@ -182,17 +240,12 @@ class Hub75Driver:
     @staticmethod
     @micropython.native
     def _create_pio_programs(
-        row_origin_top: bool, 
-        latch_safe_irq: int, 
-        latch_complete_irq: int,
+        row_origin_top: bool,
         address_count: int,
         clocks_per_address: int
     ) -> tuple[function, function]:
         OE_ASSERTED = const(0b0)
         OE_DEASSERTED = const(0b1)
-
-        if latch_safe_irq == latch_complete_irq:
-            raise ValueError("'latch_safe_irq' and 'latch_complete_irq' must be different IRQ indexes")
 
         @rp2.asm_pio(
             sideset_init=rp2.PIO.OUT_HIGH,
@@ -216,7 +269,7 @@ class Hub75Driver:
             nop()                                           .side(OE_ASSERTED) [1]
             nop()                                           .side(OE_ASSERTED)
             nop()                                           .side(OE_ASSERTED)
-            irq(latch_safe_irq)                             .side(OE_DEASSERTED)
+            irq(_LATCH_SAFE_IRQ)                            .side(OE_DEASSERTED)
             jmp(x_dec, "write_address")                     .side(OE_DEASSERTED)
             set(x, address_count - 1)                       .side(OE_DEASSERTED)
             jmp(y_dec, "write_address")                     .side(OE_DEASSERTED)
@@ -225,7 +278,7 @@ class Hub75Driver:
             # We invert the bits here when the row origin is at the top so it counts up from 0 to 15 (to work its way down)
             # (even though the x register itself counts down from 15 to 0)
             mov(pins, invert(x) if row_origin_top else x)   .side(OE_DEASSERTED)
-            wait(1, irq, latch_complete_irq)                .side(OE_DEASSERTED)
+            wait(1, irq, _LATCH_COMPLETE_IRQ)               .side(OE_DEASSERTED)
             mov(pc, y)                                      .side(OE_DEASSERTED)
             label("extra_delay_16")
             jmp("extra_delay_16_exit")                      .side(OE_ASSERTED) [15]
@@ -269,10 +322,10 @@ class Hub75Driver:
             label("write_data")
             out(pins, 8)                        .side(BOTH_DEASSERTED)
             jmp(x_dec, "write_data")            .side(CLOCK_ASSERTED)
-            wait(1, irq, latch_safe_irq)        .side(BOTH_DEASSERTED)
+            wait(1, irq, _LATCH_SAFE_IRQ)       .side(BOTH_DEASSERTED)
             # The latch is triggered on the rising edge, so we can safely say that it has been latched
             # for the IRQ even if the latch hasn't yet been deasserted
-            irq(latch_complete_irq)             .side(LATCH_ASSERTED)
+            irq(_LATCH_COMPLETE_IRQ)            .side(LATCH_ASSERTED)
             wrap()
 
         return address_manager_pio, data_clocker_pio
