@@ -149,7 +149,10 @@ class Hub75Driver:
         shutdown_lock = _thread.allocate_lock()
         shutdown_lock.acquire()
 
-        self._data_dma.irq(shutdown_lock.release)
+        def on_data_dma_complete(_):
+            shutdown_lock.release()
+
+        self._data_dma.irq(handler=on_data_dma_complete, hard=True)
 
         # Cut off the ping-ponged DMAs to stop the loop
         # Graceful stop by cutting chain rather than forcefully stopping means
