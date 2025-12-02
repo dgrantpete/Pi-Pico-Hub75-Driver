@@ -72,12 +72,16 @@ for file in source_directory.rglob('constants.py'):
 
 for file in source_directory.rglob('Makefile'):
     cflags_extra = ' '.join(itertools.chain(args.cflags, (f'-D{key}={value}' for key, value in constants.items())))
-    
+
+    # Each native module gets its own build subdirectory to avoid config.h conflicts
+    module_name = file.parent.name
+    module_build_directory = build_directory / module_name
+
     make_flags = [
         f'-C{file.parent.as_posix()}',
         f'CFLAGS_EXTRA={cflags_extra}',
         f'MPY_DIR={micropython_directory.as_posix()}',
-        f'BUILD={build_directory.as_posix()}'
+        f'BUILD={module_build_directory.as_posix()}'
     ]
 
     subprocess.run(
