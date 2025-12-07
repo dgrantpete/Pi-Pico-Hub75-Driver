@@ -1,9 +1,11 @@
 {
 	"folders": [
 		{
+			"name": "root",
 			"path": "."
 		},
 		{
+			"name": "src",
 			"path": "src"
 		},
 		{
@@ -11,6 +13,21 @@
 			"uri": "pico:"
 		}
 	],
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"type": "shell",
+				"command": "python ${workspaceFolder:root}/tools/build.py",
+				"label": "Build Project",
+				"problemMatcher": [],
+				"group": {
+					"kind": "build",
+					"isDefault": true
+				}
+			}
+		]
+	},
 	"settings": {
 		"micropico.syncFolder": "pico",
 		"micropico.openOnStart": true,
