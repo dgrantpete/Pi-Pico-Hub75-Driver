@@ -1,0 +1,101 @@
+#include "py/dynruntime.h"
+#include <stdint.h>
+#include <stddef.h>
+
+#include "render.h"
+
+static mp_obj_t plasma_frame(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t buffer;
+    mp_get_buffer_raise(args[0], &buffer, MP_BUFFER_WRITE);
+
+    uint8_t width = (uint8_t)mp_obj_get_int(args[1]);
+    uint8_t height = (uint8_t)mp_obj_get_int(args[2]);
+    uint8_t t = (uint8_t)mp_obj_get_int(args[3]);
+
+    plasma_render((uint8_t *)buffer.buf, width, height, t);
+
+    return mp_const_none;
+}
+
+static mp_obj_t fire_frame(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t fire_buffer;
+    mp_buffer_info_t rgb_buffer;
+
+    mp_get_buffer_raise(args[0], &fire_buffer, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(args[1], &rgb_buffer, MP_BUFFER_WRITE);
+
+    uint8_t width = (uint8_t)mp_obj_get_int(args[2]);
+    uint8_t height = (uint8_t)mp_obj_get_int(args[3]);
+    uint8_t t = (uint8_t)mp_obj_get_int(args[4]);
+
+    fire_render((uint8_t *)fire_buffer.buf, (uint8_t *)rgb_buffer.buf, width, height, t);
+
+    return mp_const_none;
+}
+
+static mp_obj_t spiral_frame(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t angle_buffer;
+    mp_buffer_info_t radius_buffer;
+    mp_buffer_info_t rgb_buffer;
+
+    mp_get_buffer_raise(args[0], &angle_buffer, MP_BUFFER_READ);
+    mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
+    mp_get_buffer_raise(args[2], &rgb_buffer, MP_BUFFER_WRITE);
+
+    uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
+    uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
+    uint8_t t = (uint8_t)mp_obj_get_int(args[5]);
+    uint8_t tightness = (uint8_t)mp_obj_get_int(args[6]);
+
+    uint16_t pixel_count = (uint16_t)width * height;
+
+    spiral_render(
+        (const uint8_t *)angle_buffer.buf,
+        (const uint8_t *)radius_buffer.buf,
+        (uint8_t *)rgb_buffer.buf,
+        pixel_count, t, tightness
+    );
+
+    return mp_const_none;
+}
+
+static mp_obj_t balatro_frame(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t angle_buffer;
+    mp_buffer_info_t radius_buffer;
+    mp_buffer_info_t rgb_buffer;
+
+    mp_get_buffer_raise(args[0], &angle_buffer, MP_BUFFER_READ);
+    mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
+    mp_get_buffer_raise(args[2], &rgb_buffer, MP_BUFFER_WRITE);
+
+    uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
+    uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
+    uint16_t t = (uint16_t)mp_obj_get_int(args[5]);
+    uint8_t spin_speed = (uint8_t)mp_obj_get_int(args[6]);
+    uint8_t contrast = (uint8_t)mp_obj_get_int(args[7]);
+
+    balatro_render(
+        (const uint8_t *)angle_buffer.buf,
+        (const uint8_t *)radius_buffer.buf,
+        (uint8_t *)rgb_buffer.buf,
+        width, height, t, spin_speed, contrast
+    );
+
+    return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(plasma_frame_obj, 4, 4, plasma_frame);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(fire_frame_obj, 5, 5, fire_frame);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(spiral_frame_obj, 7, 7, spiral_frame);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(balatro_frame_obj, 8, 8, balatro_frame);
+
+mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *args) {
+    MP_DYNRUNTIME_INIT_ENTRY;
+
+    mp_store_global(MP_QSTR_plasma_frame, MP_OBJ_FROM_PTR(&plasma_frame_obj));
+    mp_store_global(MP_QSTR_fire_frame, MP_OBJ_FROM_PTR(&fire_frame_obj));
+    mp_store_global(MP_QSTR_spiral_frame, MP_OBJ_FROM_PTR(&spiral_frame_obj));
+    mp_store_global(MP_QSTR_balatro_frame, MP_OBJ_FROM_PTR(&balatro_frame_obj));
+
+    MP_DYNRUNTIME_INIT_EXIT;
+}

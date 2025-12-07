@@ -1,6 +1,6 @@
 #include "color.h"
 
-uint16_t hsv_to_rgb565_impl(uint8_t h, uint8_t s, uint8_t v) {
+uint16_t hsv_to_rgb565_kernel(uint8_t h, uint8_t s, uint8_t v) {
     // Grayscale fast path
     if (s == 0) {
         return ((uint16_t)(v & 0xF8) << 8) | ((uint16_t)(v & 0xFC) << 3) | (v >> 3);
@@ -33,8 +33,8 @@ uint16_t hsv_to_rgb565_impl(uint8_t h, uint8_t s, uint8_t v) {
     return ((uint16_t)(r & 0xF8) << 8) | ((uint16_t)(g & 0xFC) << 3) | (b >> 3);
 }
 
-void hsv_to_rgb888_render(uint8_t h, uint8_t s, uint8_t v,
-                          uint8_t *r, uint8_t *g, uint8_t *b) {
+void hsv_to_rgb_kernel(uint8_t h, uint8_t s, uint8_t v,
+                       uint8_t *r, uint8_t *g, uint8_t *b) {
     if (s == 0) {
         *r = *g = *b = v;
         return;

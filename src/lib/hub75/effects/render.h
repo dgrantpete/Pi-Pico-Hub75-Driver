@@ -1,5 +1,5 @@
-#ifndef EFFECTS_H
-#define EFFECTS_H
+#ifndef RENDER_H
+#define RENDER_H
 
 #include <stdint.h>
 

@@ -4,7 +4,6 @@
 
 #include "color.h"
 #include "bitplanes.h"
-#include "effects.h"
 
 #ifndef COLOR_BIT_DEPTH
 #error "'COLOR_BIT_DEPTH' must be defined"
@@ -72,23 +71,37 @@ static mp_obj_t load_rgb565(mp_obj_t input_obj, mp_obj_t output_obj) {
     return mp_const_none;
 }
 
-static mp_obj_t hsv_to_rgb565(mp_obj_t h_obj, mp_obj_t s_obj, mp_obj_t v_obj) {
+static mp_obj_t pack_hsv_to_rgb565(mp_obj_t h_obj, mp_obj_t s_obj, mp_obj_t v_obj) {
     uint8_t h = (uint8_t)mp_obj_get_int(h_obj);
     uint8_t s = (uint8_t)mp_obj_get_int(s_obj);
     uint8_t v = (uint8_t)mp_obj_get_int(v_obj);
 
-    uint16_t result = hsv_to_rgb565_impl(h, s, v);
+    uint16_t result = hsv_to_rgb565_kernel(h, s, v);
 
     return MP_OBJ_NEW_SMALL_INT(result);
 }
 
-static mp_obj_t hsv_to_rgb888(mp_obj_t h_obj, mp_obj_t s_obj, mp_obj_t v_obj) {
+static mp_obj_t pack_hsv_to_rgb888(mp_obj_t h_obj, mp_obj_t s_obj, mp_obj_t v_obj) {
     uint8_t h = (uint8_t)mp_obj_get_int(h_obj);
     uint8_t s = (uint8_t)mp_obj_get_int(s_obj);
     uint8_t v = (uint8_t)mp_obj_get_int(v_obj);
 
     uint8_t r, g, b;
-    hsv_to_rgb888_render(h, s, v, &r, &g, &b);
+    hsv_to_rgb_kernel(h, s, v, &r, &g, &b);
+
+    // Pack as 0x00RRGGBB
+    uint32_t packed = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+
+    return mp_obj_new_int(packed);
+}
+
+static mp_obj_t hsv_to_rgb(mp_obj_t h_obj, mp_obj_t s_obj, mp_obj_t v_obj) {
+    uint8_t h = (uint8_t)mp_obj_get_int(h_obj);
+    uint8_t s = (uint8_t)mp_obj_get_int(s_obj);
+    uint8_t v = (uint8_t)mp_obj_get_int(v_obj);
+
+    uint8_t r, g, b;
+    hsv_to_rgb_kernel(h, s, v, &r, &g, &b);
 
     mp_obj_t items[3] = {
         MP_OBJ_NEW_SMALL_INT(r),
@@ -99,95 +112,12 @@ static mp_obj_t hsv_to_rgb888(mp_obj_t h_obj, mp_obj_t s_obj, mp_obj_t v_obj) {
     return mp_obj_new_tuple(3, items);
 }
 
-static mp_obj_t plasma_frame(size_t n_args, const mp_obj_t *args) {
-    mp_buffer_info_t buffer;
-    mp_get_buffer_raise(args[0], &buffer, MP_BUFFER_WRITE);
-
-    uint8_t width = (uint8_t)mp_obj_get_int(args[1]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[2]);
-    uint8_t t = (uint8_t)mp_obj_get_int(args[3]);
-
-    plasma_render((uint8_t *)buffer.buf, width, height, t);
-
-    return mp_const_none;
-}
-
-static mp_obj_t fire_frame(size_t n_args, const mp_obj_t *args) {
-    mp_buffer_info_t fire_buffer;
-    mp_buffer_info_t rgb_buffer;
-
-    mp_get_buffer_raise(args[0], &fire_buffer, MP_BUFFER_WRITE);
-    mp_get_buffer_raise(args[1], &rgb_buffer, MP_BUFFER_WRITE);
-
-    uint8_t width = (uint8_t)mp_obj_get_int(args[2]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[3]);
-    uint8_t t = (uint8_t)mp_obj_get_int(args[4]);
-
-    fire_render((uint8_t *)fire_buffer.buf, (uint8_t *)rgb_buffer.buf, width, height, t);
-
-    return mp_const_none;
-}
-
-static mp_obj_t spiral_frame(size_t n_args, const mp_obj_t *args) {
-    mp_buffer_info_t angle_buffer;
-    mp_buffer_info_t radius_buffer;
-    mp_buffer_info_t rgb_buffer;
-
-    mp_get_buffer_raise(args[0], &angle_buffer, MP_BUFFER_READ);
-    mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
-    mp_get_buffer_raise(args[2], &rgb_buffer, MP_BUFFER_WRITE);
-
-    uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
-    uint8_t t = (uint8_t)mp_obj_get_int(args[5]);
-    uint8_t tightness = (uint8_t)mp_obj_get_int(args[6]);
-
-    uint16_t pixel_count = (uint16_t)width * height;
-
-    spiral_render(
-        (const uint8_t *)angle_buffer.buf,
-        (const uint8_t *)radius_buffer.buf,
-        (uint8_t *)rgb_buffer.buf,
-        pixel_count, t, tightness
-    );
-
-    return mp_const_none;
-}
-
-static mp_obj_t balatro_frame(size_t n_args, const mp_obj_t *args) {
-    mp_buffer_info_t angle_buffer;
-    mp_buffer_info_t radius_buffer;
-    mp_buffer_info_t rgb_buffer;
-
-    mp_get_buffer_raise(args[0], &angle_buffer, MP_BUFFER_READ);
-    mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
-    mp_get_buffer_raise(args[2], &rgb_buffer, MP_BUFFER_WRITE);
-
-    uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
-    uint16_t t = (uint16_t)mp_obj_get_int(args[5]);
-    uint8_t spin_speed = (uint8_t)mp_obj_get_int(args[6]);
-    uint8_t contrast = (uint8_t)mp_obj_get_int(args[7]);
-
-    balatro_render(
-        (const uint8_t *)angle_buffer.buf,
-        (const uint8_t *)radius_buffer.buf,
-        (uint8_t *)rgb_buffer.buf,
-        width, height, t, spin_speed, contrast
-    );
-
-    return mp_const_none;
-}
-
 static MP_DEFINE_CONST_FUN_OBJ_2(load_rgb888_obj, load_rgb888);
 static MP_DEFINE_CONST_FUN_OBJ_2(load_rgb565_obj, load_rgb565);
 static MP_DEFINE_CONST_FUN_OBJ_1(clear_obj, clear);
-static MP_DEFINE_CONST_FUN_OBJ_3(hsv_to_rgb565_obj, hsv_to_rgb565);
-static MP_DEFINE_CONST_FUN_OBJ_3(hsv_to_rgb888_obj, hsv_to_rgb888);
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(plasma_frame_obj, 4, 4, plasma_frame);
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(fire_frame_obj, 5, 5, fire_frame);
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(spiral_frame_obj, 7, 7, spiral_frame);
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(balatro_frame_obj, 8, 8, balatro_frame);
+static MP_DEFINE_CONST_FUN_OBJ_3(pack_hsv_to_rgb565_obj, pack_hsv_to_rgb565);
+static MP_DEFINE_CONST_FUN_OBJ_3(pack_hsv_to_rgb888_obj, pack_hsv_to_rgb888);
+static MP_DEFINE_CONST_FUN_OBJ_3(hsv_to_rgb_obj, hsv_to_rgb);
 
 mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *args) {
     MP_DYNRUNTIME_INIT_ENTRY;
@@ -195,12 +125,9 @@ mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *a
     mp_store_global(MP_QSTR_load_rgb888, MP_OBJ_FROM_PTR(&load_rgb888_obj));
     mp_store_global(MP_QSTR_load_rgb565, MP_OBJ_FROM_PTR(&load_rgb565_obj));
     mp_store_global(MP_QSTR_clear, MP_OBJ_FROM_PTR(&clear_obj));
-    mp_store_global(MP_QSTR_hsv_to_rgb565, MP_OBJ_FROM_PTR(&hsv_to_rgb565_obj));
-    mp_store_global(MP_QSTR_hsv_to_rgb888, MP_OBJ_FROM_PTR(&hsv_to_rgb888_obj));
-    mp_store_global(MP_QSTR_plasma_frame, MP_OBJ_FROM_PTR(&plasma_frame_obj));
-    mp_store_global(MP_QSTR_fire_frame, MP_OBJ_FROM_PTR(&fire_frame_obj));
-    mp_store_global(MP_QSTR_spiral_frame, MP_OBJ_FROM_PTR(&spiral_frame_obj));
-    mp_store_global(MP_QSTR_balatro_frame, MP_OBJ_FROM_PTR(&balatro_frame_obj));
+    mp_store_global(MP_QSTR_pack_hsv_to_rgb565, MP_OBJ_FROM_PTR(&pack_hsv_to_rgb565_obj));
+    mp_store_global(MP_QSTR_pack_hsv_to_rgb888, MP_OBJ_FROM_PTR(&pack_hsv_to_rgb888_obj));
+    mp_store_global(MP_QSTR_hsv_to_rgb, MP_OBJ_FROM_PTR(&hsv_to_rgb_obj));
 
     MP_DYNRUNTIME_INIT_EXIT;
 }
