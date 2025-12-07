@@ -11,6 +11,8 @@ import re
 _PIO_PROGRAM_DATA_INDEX = const(0)
 _PIO_PROGRAM_BUFFER_SIZE = const(32)
 
+_DEFAULT_PIO_INDEX = const(0)
+
 # Increasing this value non-linearly increases the duty cycle but decreases the refresh rate
 # This default value is a good balance between brightness and refresh rate
 _ADDRESS_MANAGER_CLOCK_DIVIDER = const(16)
@@ -69,7 +71,7 @@ class Hub75Driver:
             _PIO_PROGRAM_BUFFER_SIZE - address_manager_pio_size - data_clocker_pio_size
         )
 
-        self._pio = pio if pio is not None else rp2.PIO(0)
+        self._pio = pio if pio is not None else rp2.PIO(_DEFAULT_PIO_INDEX)
         self._pio_block_id = self.__class__._get_pio_index(self._pio)
 
         data_state_machine_id = self.__class__._get_absolute_state_machine_id(
@@ -125,7 +127,7 @@ class Hub75Driver:
             ),
             write=self._data_clocker_state_machine,
             read=self._active_buffer,
-            count=len(self._active_buffer) // 4
+            count=len(self._active_buffer) // 4 # divide by 4 since '_active_buffer' is in bytes with 32-bit transfers
         )
 
         self._control_flow_dma.config(
