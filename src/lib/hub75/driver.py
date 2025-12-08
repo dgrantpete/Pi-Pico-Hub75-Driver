@@ -15,7 +15,7 @@ _DEFAULT_PIO_INDEX = const(0)
 
 # Increasing this value non-linearly increases the duty cycle but decreases the refresh rate
 # This default value is a good balance between brightness and refresh rate
-_ADDRESS_MANAGER_CLOCK_DIVIDER = const(16)
+_DEFAULT_ADDRESS_MANAGER_CLOCK_DIVIDER = const(16)
 
 _DMA_READ_ADDRESS_TRIGGER_INDEX = const(15)
 
@@ -45,8 +45,13 @@ class Hub75Driver:
             base_data_pin: machine.Pin,
             base_clock_pin: machine.Pin,
             row_origin_top: bool = True,
-            data_clock_frequency: int = 30_000_000
+            data_clock_frequency: int = 30_000_000,
+            address_manager_frequency: int | None = None
         ):
+
+        if address_manager_frequency is None:
+            address_manager_frequency = data_clock_frequency // _DEFAULT_ADDRESS_MANAGER_CLOCK_DIVIDER
+
         self._width = width
         self._height = height
         address_count = height // 2
@@ -106,7 +111,7 @@ class Hub75Driver:
             address_manager_pio,
             out_base=base_address_pin,
             sideset_base=output_enable_pin,
-            freq=data_clock_frequency // _ADDRESS_MANAGER_CLOCK_DIVIDER
+            freq=address_manager_frequency
         )
 
         self._active_buffer_address_pointer = array('I', [uctypes.addressof(self._active_buffer)])
