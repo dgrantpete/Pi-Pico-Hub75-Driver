@@ -5,6 +5,7 @@ import uctypes
 from array import array
 from hub75.constants import COLOR_BIT_DEPTH
 from hub75.native import clear, load_rgb888, load_rgb565
+from micropython import const
 import _thread
 import re
 
@@ -15,7 +16,7 @@ _DEFAULT_PIO_INDEX = const(0)
 
 # Increasing this value non-linearly increases the duty cycle but decreases the refresh rate
 # This default value is a good balance between brightness and refresh rate
-_DEFAULT_ADDRESS_MANAGER_CLOCK_DIVIDER = const(16)
+_DEFAULT_ADDRESS_CLOCK_DIVIDER = const(16)
 
 _DMA_READ_ADDRESS_TRIGGER_INDEX = const(15)
 
@@ -30,50 +31,61 @@ _ADDRESS_STATE_MACHINE_OFFSET = const(1)
 _LATCH_SAFE_IRQ = const(0)
 _LATCH_COMPLETE_IRQ = const(1)
 
+# PIO register base addresses (same on RP2040 and RP2350)
+_PIO_BASE_ADDRESSES = (
+    const(0x50200000),  # PIO0
+    const(0x50300000),  # PIO1
+    const(0x50400000),  # PIO2 (RP2350 only)
+)
+_SM_CLKDIV_OFFSET = const(0x0C8)  # SM0_CLKDIV offset from PIO base
+_SM_CLKDIV_STRIDE = const(0x18)   # Bytes between each SM's registers
+
+_PIO_DEBUG_FLAGS_OFFSET = const(0x008)
+
+_PIO_TX_FLAG_BASE_INDEX = const(24)
+
 _PIO_INDEX_EXPRESSION = re.compile(r'PIO\((\d)\)')
 
 class Hub75Driver:
     @micropython.native
     def __init__(
             self,
-            width: int,
-            height: int,
             *,
+            address_bit_count: int,
+            shift_register_depth: int,
             pio: rp2.PIO | None = None,
             base_address_pin: machine.Pin,
             output_enable_pin: machine.Pin,
             base_data_pin: machine.Pin,
             base_clock_pin: machine.Pin,
-            row_origin_top: bool = True,
-            data_clock_frequency: int = 30_000_000,
-            address_manager_frequency: int | None = None
+            data_frequency: int = 25_000_000,
+            address_frequency: int | None = None
         ):
 
-        if address_manager_frequency is None:
-            address_manager_frequency = data_clock_frequency // _DEFAULT_ADDRESS_MANAGER_CLOCK_DIVIDER
+        if address_frequency is None:
+            address_frequency = data_frequency // _DEFAULT_ADDRESS_CLOCK_DIVIDER
 
-        self._width = width
-        self._height = height
-        address_count = height // 2
+        row_address_count = 1 << address_bit_count
+
+        buffer_size = row_address_count * shift_register_depth * COLOR_BIT_DEPTH
 
         self._buffers = [
-            bytearray((width * address_count) * COLOR_BIT_DEPTH),
-            bytearray((width * address_count) * COLOR_BIT_DEPTH)
+            bytearray(buffer_size),
+            bytearray(buffer_size)
         ]
 
         self._active_buffer_index = 0
 
-        (address_manager_pio, data_clocker_pio) = self.__class__._create_pio_programs(
-            row_origin_top,
-            address_count,
-            clocks_per_address=width
+        (address_program, data_program) = self.__class__._create_pio_programs(
+            address_bit_count,
+            shift_register_depth
         )
 
-        address_manager_pio_size = self.__class__._get_pio_program_length(address_manager_pio)
-        data_clocker_pio_size = self.__class__._get_pio_program_length(data_clocker_pio)
+        address_program_size = self.__class__._get_pio_program_size(address_program)
+        data_program_size = self.__class__._get_pio_program_size(data_program)
 
-        padding_pio = self.__class__._create_padding_pio_program(
-            _PIO_PROGRAM_BUFFER_SIZE - address_manager_pio_size - data_clocker_pio_size
+        padding_program = self.__class__._create_padding_pio_program(
+            _PIO_PROGRAM_BUFFER_SIZE - address_program_size - data_program_size
         )
 
         self._pio = pio if pio is not None else rp2.PIO(_DEFAULT_PIO_INDEX)
@@ -90,28 +102,28 @@ class Hub75Driver:
         self._pio.remove_program()
 
         # PIO programs are loaded from back to front
-        # We need 'address_manager' to be at offset 0 since we use dynamic jumps
+        # We need address program to be at offset 0 since we use dynamic jumps
         # To force this, we load a padding program first with a calculated size
-        # Once this is done, we load 'data_clocker', and finally 'address_manager' so it sits at the front
+        # Once this is done, we load 'data', and finally 'address' so it sits at the front
 
-        self._pio.add_program(padding_pio)
-        self._pio.add_program(data_clocker_pio)
-        self._pio.add_program(address_manager_pio)
+        self._pio.add_program(padding_program)
+        self._pio.add_program(data_program)
+        self._pio.add_program(address_program)
 
-        self._data_clocker_state_machine = rp2.StateMachine(
+        self._data_state_machine = rp2.StateMachine(
             data_state_machine_id,
-            data_clocker_pio,
+            data_program,
             out_base=base_data_pin,
             sideset_base=base_clock_pin,
-            freq=data_clock_frequency
+            freq=data_frequency * 2 # times 2 since each clock cycle has a rising and falling edge
         )
 
-        self._address_manager_state_machine = rp2.StateMachine(
+        self._address_state_machine = rp2.StateMachine(
             address_state_machine_id,
-            address_manager_pio,
+            address_program,
             out_base=base_address_pin,
             sideset_base=output_enable_pin,
-            freq=address_manager_frequency
+            freq=address_frequency
         )
 
         self._active_buffer_address_pointer = array('I', [uctypes.addressof(self._active_buffer)])
@@ -130,7 +142,7 @@ class Hub75Driver:
                 treq_sel=self.__class__._get_pio_data_request_index(self._pio_block_id, self._data_state_machine_offset),
                 irq_quiet=True
             ),
-            write=self._data_clocker_state_machine,
+            write=self._data_state_machine,
             read=self._active_buffer,
             count=len(self._active_buffer) // 4 # divide by 4 since '_active_buffer' is in bytes with 32-bit transfers
         )
@@ -148,8 +160,8 @@ class Hub75Driver:
             trigger=True
         )
 
-        self._data_clocker_state_machine.active(1)
-        self._address_manager_state_machine.active(1)
+        self._data_state_machine.active(1)
+        self._address_state_machine.active(1)
 
     @micropython.native
     def deinit(self):
@@ -163,7 +175,7 @@ class Hub75Driver:
 
         # Cut off the ping-ponged DMAs to stop the loop
         # Graceful stop by cutting chain rather than forcefully stopping means
-        # the DMAs are in a clean state when they are done and FIFOs are emptied
+        # the DMAs are in a clean state when they are done
         self._data_dma.config(
             ctrl=self._data_dma.pack_ctrl(
                 size=_DMA_32BIT_TRANSFER_SIZE,
@@ -173,7 +185,7 @@ class Hub75Driver:
                 treq_sel=self.__class__._get_pio_data_request_index(self._pio_block_id, self._data_state_machine_offset),
                 irq_quiet=False # Atomically enable IRQ to fire only when chain broken
             ),
-            write=self._data_clocker_state_machine,
+            write=self._data_state_machine,
             read=self._active_buffer,
             count=len(self._active_buffer) // 4
         )
@@ -184,21 +196,23 @@ class Hub75Driver:
         self._data_dma.close()
         self._control_flow_dma.close()
 
+        pio_base = _PIO_BASE_ADDRESSES[self._pio_block_id]
+
+        tx_flag_index = _PIO_TX_FLAG_BASE_INDEX + self._data_state_machine_offset
+        tx_bit_mask = 1 << tx_flag_index
+
+        # Clear any stalled TX flags to ensure we know state machines are freshly stalled
+        machine.mem32[pio_base + _PIO_DEBUG_FLAGS_OFFSET] = tx_bit_mask
+
+        while (machine.mem32[pio_base + _PIO_DEBUG_FLAGS_OFFSET] & tx_bit_mask) == 0:
+            # Wait until state machine is stalled (has no more data to pull from DMA)
+            machine.idle()
+            
         # Deactivate the state machines and unload their programs from the PIO block
-        self._data_clocker_state_machine.active(0)
-        self._address_manager_state_machine.active(0)
+        self._data_state_machine.active(0)
+        self._address_state_machine.active(0)
 
         self._pio.remove_program()
-
-    @property
-    @micropython.native
-    def width(self) -> int:
-        return self._width
-    
-    @property
-    @micropython.native
-    def height(self) -> int:
-        return self._height
 
     @micropython.native
     def load_rgb888(self, rgb888_data: memoryview | bytes | bytearray):
@@ -217,9 +231,35 @@ class Hub75Driver:
         self._active_buffer_index = 1 - self._active_buffer_index
         self._active_buffer_address_pointer[0] = uctypes.addressof(self._active_buffer)
 
+    @micropython.native
+    def set_frequency(self, data_frequency=None, address_frequency=None):
+        """Change state machine frequencies via direct register writes.
+
+        Args:
+            data_frequency: Data frequency in Hz. If None, unchanged.
+            address_frequency: Address frequency in Hz. If None, unchanged.
+        """
+        system_frequency = machine.freq()
+        pio_base = _PIO_BASE_ADDRESSES[self._pio_block_id]
+
+        if data_frequency is not None:
+            clkdiv_address = pio_base + _SM_CLKDIV_OFFSET + (_DATA_STATE_MACHINE_OFFSET * _SM_CLKDIV_STRIDE)
+            divider = system_frequency / (data_frequency * 2)
+            integer_part = int(divider)
+            fractional_part = int((divider - integer_part) * 256)
+            machine.mem32[clkdiv_address] = (integer_part << 16) | (fractional_part << 8)
+
+        if address_frequency is not None:
+            clkdiv_address = pio_base + _SM_CLKDIV_OFFSET + (_ADDRESS_STATE_MACHINE_OFFSET * _SM_CLKDIV_STRIDE)
+            divider = system_frequency / address_frequency
+            integer_part = int(divider)
+            fractional_part = int((divider - integer_part) * 256)
+            machine.mem32[clkdiv_address] = (integer_part << 16) | (fractional_part << 8)
+
     @staticmethod
     @micropython.native
     def _get_pio_index(pio: rp2.PIO) -> int:
+        # Micropython API doesn't expose PIO index as a direct integer, so we need to extract it from its string representation
         match = _PIO_INDEX_EXPRESSION.match(repr(pio))
 
         if not match:
@@ -250,18 +290,17 @@ class Hub75Driver:
     @staticmethod
     @micropython.native
     def _create_pio_programs(
-        row_origin_top: bool,
-        address_count: int,
-        clocks_per_address: int
+        address_bit_count: int,
+        shift_register_depth: int
     ) -> tuple[function, function]:
         OE_ASSERTED = const(0b0)
         OE_DEASSERTED = const(0b1)
 
         @rp2.asm_pio(
             sideset_init=rp2.PIO.OUT_HIGH,
-            out_init=[rp2.PIO.OUT_LOW] * 4
+            out_init=[rp2.PIO.OUT_LOW] * address_bit_count
         )
-        def address_manager_pio():
+        def address_program():
             # Dynamic jumps to instruction indexes 0-7 creates accumulated exponential delays for bitplane timing
             # For example, when COLOR_BIT_DEPTH is 8:
             # when index is 7 ->                                1 = 1 cycle total delay
@@ -281,13 +320,13 @@ class Hub75Driver:
             nop()                                           .side(OE_ASSERTED)
             irq(_LATCH_SAFE_IRQ)                            .side(OE_DEASSERTED)
             jmp(x_dec, "write_address")                     .side(OE_DEASSERTED)
-            set(x, address_count - 1)                       .side(OE_DEASSERTED)
+            set(x, (0b1 <<  address_bit_count) - 1)         .side(OE_DEASSERTED)
             jmp(y_dec, "write_address")                     .side(OE_DEASSERTED)
             set(y, 7)                                       .side(OE_DEASSERTED)
             label("write_address")
-            # We invert the bits here when the row origin is at the top so it counts up from 0 to 15 (to work its way down)
+            # We invert the bits here so it counts up from 0 to 15 (to work its way down as addresses increase)
             # (even though the x register itself counts down from 15 to 0)
-            mov(pins, invert(x) if row_origin_top else x)   .side(OE_DEASSERTED)
+            mov(pins, invert(x))   .side(OE_DEASSERTED)
             wait(1, irq, _LATCH_COMPLETE_IRQ)               .side(OE_DEASSERTED)
             mov(pc, y)                                      .side(OE_DEASSERTED)
             label("extra_delay_16")
@@ -307,12 +346,12 @@ class Hub75Driver:
             out_shiftdir=rp2.PIO.SHIFT_RIGHT,
             in_shiftdir=rp2.PIO.SHIFT_RIGHT,
             autopull=True,
-            pull_thresh=32,
+            pull_thresh=32
         )
-        def data_clocker_pio():
+        def data_program():
             # The largest value we can set directly into x register is 0b11111 (31)
             # We use the ISR together with x to build larger values 5 bits at a time and shift them in
-            counter_value = clocks_per_address - 1
+            counter_value = shift_register_depth - 1
             right_isr_padding = 32
 
             while counter_value:
@@ -321,7 +360,7 @@ class Hub75Driver:
                 right_isr_padding -= 5
 
                 if right_isr_padding < 0:
-                    raise ValueError("'clocks_per_row' must fit within 32 bits")
+                    raise ValueError("'shift_register_depth' must fit within 32 bits")
 
                 set(x, least_significant_bits)  .side(BOTH_DEASSERTED)
                 in_(x, 5)                       .side(BOTH_DEASSERTED)
@@ -338,13 +377,13 @@ class Hub75Driver:
             irq(_LATCH_COMPLETE_IRQ)            .side(LATCH_ASSERTED)
             wrap()
 
-        return address_manager_pio, data_clocker_pio
+        return address_program, data_program
     
     @staticmethod
     @micropython.native
-    def _get_pio_program_length(program) -> int:
+    def _get_pio_program_size(program) -> int:
         return len(program[_PIO_PROGRAM_DATA_INDEX])
-    
+
     @staticmethod
     @micropython.native
     def _create_padding_pio_program(size: int):
