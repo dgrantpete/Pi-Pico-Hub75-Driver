@@ -31,7 +31,6 @@
 	"settings": {
 		"micropico.syncFolder": "pico",
 		"micropico.openOnStart": true,
-		"micropico.softResetAfterUpload": true,
 		"micropico.statusbarButtons": [
 			"status",
 			"run",

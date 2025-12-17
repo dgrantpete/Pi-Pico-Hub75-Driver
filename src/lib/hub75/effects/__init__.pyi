@@ -1,7 +1,3 @@
-"""Type stubs for the effects module."""
-from typing import Protocol
-
-
 def plasma_frame(
     buffer: bytearray | memoryview,
     width: int,
@@ -86,17 +82,6 @@ def balatro_frame(
     ...
 
 
-class Hub75DriverProtocol(Protocol):
-    """Protocol for HUB75 driver interface."""
-    @property
-    def width(self) -> int: ...
-    @property
-    def height(self) -> int: ...
-    def load_rgb888(self, data: bytearray | memoryview) -> None: ...
-    def flip(self) -> None: ...
-    def clear(self) -> None: ...
-
-
 class EffectRunner:
     """Manages visual effects on a HUB75 display.
 
@@ -116,7 +101,7 @@ class EffectRunner:
     warp_amount: int
     """Controls organic distortion amount (1-15 typical, higher = more wobbly)."""
 
-    def __init__(self, driver: Hub75DriverProtocol) -> None:
+    def __init__(self, driver, width, height) -> None:
         """Initialize effect runner.
 
         Args:

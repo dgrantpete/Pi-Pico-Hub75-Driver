@@ -95,7 +95,7 @@ void load_rgb565_kernel(
 }
 
 void clear_buffer(uint8_t *data, size_t len) {
-    // Use volatile to prevent compiler from optimizing this into memset
+    // Use 'volatile' to prevent compiler from optimizing this into memset (it isn't available in natmod context)
     volatile uint8_t *vdata = data;
     for (size_t index = 0; index < len; index++) {
         vdata[index] = 0;

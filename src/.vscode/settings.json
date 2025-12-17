@@ -10,6 +10,5 @@
     "python.analysis.extraPaths": [
         "~/.micropico-stubs/included",
         "${workspaceFolder}/lib"
-    ],
-    "C_Cpp.errorSquiggles": "disabled"
+    ]
 }

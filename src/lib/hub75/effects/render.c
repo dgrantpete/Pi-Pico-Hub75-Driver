@@ -1,7 +1,6 @@
 #include "render.h"
 #include <stddef.h>
 
-// Inlined HSV to RGB kernel for tight render loops (private to effects natmod)
 static inline void hsv_to_rgb_kernel(uint8_t h, uint8_t s, uint8_t v,
                                      uint8_t *r, uint8_t *g, uint8_t *b) {
     if (s == 0) {
