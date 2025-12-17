@@ -7,7 +7,6 @@
             "cStandard": "c99",
             "compilerPath": "arm-none-eabi-gcc",
             "includePath": [
-                "${workspaceFolder}/.vscode",
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/../tools/micropython"
             ],
