@@ -89,6 +89,14 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(fire_frame_obj, 5, 5, fire_frame);
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(spiral_frame_obj, 7, 7, spiral_frame);
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(balatro_frame_obj, 8, 8, balatro_frame);
 
+// IntelliSense stubs for module-specific QSTRs (generated at build time)
+#ifdef __INTELLISENSE__
+#define MP_QSTR_plasma_frame (0)
+#define MP_QSTR_fire_frame (0)
+#define MP_QSTR_spiral_frame (0)
+#define MP_QSTR_balatro_frame (0)
+#endif
+
 mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *args) {
     MP_DYNRUNTIME_INIT_ENTRY;
 

@@ -119,6 +119,16 @@ static MP_DEFINE_CONST_FUN_OBJ_3(pack_hsv_to_rgb565_obj, pack_hsv_to_rgb565);
 static MP_DEFINE_CONST_FUN_OBJ_3(pack_hsv_to_rgb888_obj, pack_hsv_to_rgb888);
 static MP_DEFINE_CONST_FUN_OBJ_3(hsv_to_rgb_obj, hsv_to_rgb);
 
+// IntelliSense stubs for module-specific QSTRs (generated at build time)
+#ifdef __INTELLISENSE__
+#define MP_QSTR_load_rgb888 (0)
+#define MP_QSTR_load_rgb565 (0)
+#define MP_QSTR_clear (0)
+#define MP_QSTR_pack_hsv_to_rgb565 (0)
+#define MP_QSTR_pack_hsv_to_rgb888 (0)
+#define MP_QSTR_hsv_to_rgb (0)
+#endif
+
 mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *args) {
     MP_DYNRUNTIME_INIT_ENTRY;
 

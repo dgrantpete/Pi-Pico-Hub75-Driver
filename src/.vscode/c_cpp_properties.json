@@ -4,9 +4,21 @@
         {
             "name": "Pico natmods",
             "intelliSenseMode": "gcc-arm",
-            "cStandard": "c23",
+            "cStandard": "c99",
+            "compilerPath": "arm-none-eabi-gcc",
             "includePath": [
-                "${workspaceFolder:src}"
+                "${workspaceFolder}/.vscode",
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/../tools/micropython"
+            ],
+            "defines": [
+                "__INTELLISENSE__",
+                "MICROPY_ENABLE_DYNRUNTIME=1",
+                "NO_QSTR",
+                "NDEBUG",
+                "MICROPY_FLOAT_IMPL=MICROPY_FLOAT_IMPL_FLOAT",
+                "MICROPY_ROM_TEXT_COMPRESSION=0",
+                "COLOR_BIT_DEPTH=8"
             ]
         }
     ]
