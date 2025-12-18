@@ -7,10 +7,6 @@
 		{
 			"name": "src",
 			"path": "src"
-		},
-		{
-			"name": "Mpy Remote Workspace",
-			"uri": "pico:"
 		}
 	],
 	"tasks": {

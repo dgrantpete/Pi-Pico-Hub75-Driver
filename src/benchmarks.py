@@ -9,7 +9,7 @@ import gc
 import time
 import urandom
 import machine
-from lib.hub75.driver import Hub75Driver
+from hub75.driver import Hub75Driver
 
 
 # ============================================================================
@@ -407,35 +407,42 @@ def print_compact_report(width, height, iterations, results):
 
 def run_benchmark(
     width=64,
-    height=32,
+    height=64,
     iterations=50,
     verbose=True,
     base_data_pin=0,
     base_clock_pin=6,
-    base_address_pin=7,
-    output_enable_pin=11
+    base_address_pin=18,
+    output_enable_pin=12
 ):
     """
     Run complete benchmark suite for Hub75Driver.
 
     Args:
         width: Image width in pixels (default: 64)
-        height: Image height in pixels (default: 32)
+        height: Image height in pixels (default: 64)
         iterations: Number of iterations per test (default: 50)
         verbose: Show detailed report (True) or compact report (False) (default: True)
         base_data_pin: First data pin (default: 0, uses pins 0-5 for R1,G1,B1,R2,G2,B2)
         base_clock_pin: Clock pin (default: 6)
-        base_address_pin: First address pin (default: 7, uses pins 7-10 for A,B,C,D)
-        output_enable_pin: Output enable pin (default: 11)
+        base_address_pin: First address pin (default: 18)
+        output_enable_pin: Output enable pin (default: 12)
 
     Example:
-        >>> run_benchmark(width=64, height=32, iterations=100)
+        >>> run_benchmark(width=64, height=64, iterations=100)
         >>> run_benchmark(width=128, height=64, iterations=50, verbose=False)
     """
+    # Calculate address_bit_count from height
+    # height = 2 * (2 ** address_bit_count), so address_bit_count = log2(height / 2)
+    address_bit_count = (height // 2).bit_length() - 1
+    if 2 ** address_bit_count != height // 2:
+        # height/2 is not a power of 2, round up
+        address_bit_count = (height // 2 - 1).bit_length()
+
     # Create Hub75Driver instance
     driver = Hub75Driver(
-        width=width,
-        height=height,
+        address_bit_count=address_bit_count,
+        shift_register_depth=width,
         base_data_pin=machine.Pin(base_data_pin),
         base_clock_pin=machine.Pin(base_clock_pin),
         base_address_pin=machine.Pin(base_address_pin),
@@ -476,7 +483,7 @@ def run_benchmark(
         print_compact_report(width, height, iterations, results)
 
     # Cleanup
-    driver.stop()
+    driver.deinit()
     del driver, rgb888_data, rgb565_data
     gc.collect()
 
@@ -504,7 +511,7 @@ def standard_test(verbose=True, **pin_config):
         verbose: Show detailed report
         **pin_config: Optional pin configuration (base_data_pin, base_clock_pin, etc.)
     """
-    run_benchmark(width=64, height=32, iterations=50, verbose=verbose, **pin_config)
+    run_benchmark(width=64, height=64, iterations=50, verbose=verbose, **pin_config)
 
 
 def stress_test(verbose=True, **pin_config):
