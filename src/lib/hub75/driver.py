@@ -3,20 +3,22 @@ import rp2
 import machine
 import uctypes
 from array import array
-from hub75.constants import COLOR_BIT_DEPTH
-from hub75.native import clear, load_rgb888, load_rgb565
+from .constants import COLOR_BIT_DEPTH
+from .native import clear, load_rgb888, load_rgb565
 from micropython import const
 import _thread
 import re
+
+DEFAULT_DATA_FREQUENCY = 25_000_000
+
+# Increasing this value non-linearly increases the duty cycle but decreases the refresh rate
+# This default value is a good balance between brightness and refresh rate
+DEFAULT_ADDRESS_FREQUENCY_DIVIDER = 16
 
 _PIO_PROGRAM_DATA_INDEX = const(0)
 _PIO_PROGRAM_BUFFER_SIZE = const(32)
 
 _DEFAULT_PIO_INDEX = const(0)
-
-# Increasing this value non-linearly increases the duty cycle but decreases the refresh rate
-# This default value is a good balance between brightness and refresh rate
-_DEFAULT_ADDRESS_CLOCK_DIVIDER = const(16)
 
 _DMA_READ_ADDRESS_TRIGGER_INDEX = const(15)
 
@@ -58,16 +60,17 @@ class Hub75Driver:
             output_enable_pin: machine.Pin,
             base_data_pin: machine.Pin,
             base_clock_pin: machine.Pin,
-            data_frequency: int = 25_000_000,
+            data_frequency: int = DEFAULT_DATA_FREQUENCY,
             address_frequency: int | None = None
         ):
 
         if address_frequency is None:
-            address_frequency = data_frequency // _DEFAULT_ADDRESS_CLOCK_DIVIDER
+            address_frequency = data_frequency // DEFAULT_ADDRESS_FREQUENCY_DIVIDER
 
-        row_address_count = 1 << address_bit_count
+        self._address_bit_count = address_bit_count
+        self._shift_register_depth = shift_register_depth
 
-        buffer_size = row_address_count * shift_register_depth * COLOR_BIT_DEPTH
+        buffer_size = self.row_address_count * shift_register_depth * COLOR_BIT_DEPTH
 
         self._buffers = [
             bytearray(buffer_size),
@@ -255,6 +258,21 @@ class Hub75Driver:
             integer_part = int(divider)
             fractional_part = int((divider - integer_part) * 256)
             machine.mem32[clkdiv_address] = (integer_part << 16) | (fractional_part << 8)
+
+    @property
+    @micropython.native
+    def address_bit_count(self) -> int:
+        return self._address_bit_count
+    
+    @property
+    @micropython.native
+    def row_address_count(self) -> int:
+        return 1 << self._address_bit_count
+    
+    @property
+    @micropython.native
+    def shift_register_depth(self) -> int:
+        return self._shift_register_depth
 
     @staticmethod
     @micropython.native
