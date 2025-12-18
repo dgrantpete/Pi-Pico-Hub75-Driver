@@ -142,7 +142,7 @@ static inline uint32_t fire_hash(uint32_t x, uint32_t y, uint32_t frame_time) {
     return hash_value ^ (hash_value >> 16);
 }
 
-void render_plasma(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
+void render_plasma_frame_kernel(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
     for (uint8_t y = 0; y < height; y++) {
         for (uint8_t x = 0; x < width; x++) {
             // Combine multiple sine waves for plasma effect
@@ -166,7 +166,7 @@ void render_plasma(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame
     }
 }
 
-void render_fire(uint8_t *fire_buffer, uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
+void render_fire_frame_kernel(uint8_t *fire_buffer, uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
     // Propagate fire upward with cooling and horizontal spread
     for (int y = 0; y < height - 1; y++) {
         for (int x = 0; x < width; x++) {
@@ -201,7 +201,7 @@ void render_fire(uint8_t *fire_buffer, uint8_t *buffer, uint8_t width, uint8_t h
     }
 }
 
-void render_spiral(
+void render_spiral_frame_kernel(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
     uint8_t *buffer,
@@ -221,7 +221,7 @@ void render_spiral(
     }
 }
 
-void render_balatro(
+void render_balatro_frame_kernel(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
     uint8_t *buffer,

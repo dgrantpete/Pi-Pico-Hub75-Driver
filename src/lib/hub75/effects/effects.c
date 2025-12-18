@@ -4,7 +4,7 @@
 
 #include "render.h"
 
-static mp_obj_t plasma_frame(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t render_plasma_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t buffer;
     mp_get_buffer_raise(args[0], &buffer, MP_BUFFER_WRITE);
 
@@ -12,12 +12,12 @@ static mp_obj_t plasma_frame(size_t n_args, const mp_obj_t *args) {
     uint8_t height = (uint8_t)mp_obj_get_int(args[2]);
     uint8_t frame_time = (uint8_t)mp_obj_get_int(args[3]);
 
-    render_plasma((uint8_t *)buffer.buf, width, height, frame_time);
+    render_plasma_frame_kernel((uint8_t *)buffer.buf, width, height, frame_time);
 
     return mp_const_none;
 }
 
-static mp_obj_t fire_frame(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t render_fire_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t fire_buffer;
     mp_buffer_info_t buffer;
 
@@ -28,12 +28,12 @@ static mp_obj_t fire_frame(size_t n_args, const mp_obj_t *args) {
     uint8_t height = (uint8_t)mp_obj_get_int(args[3]);
     uint8_t frame_time = (uint8_t)mp_obj_get_int(args[4]);
 
-    render_fire((uint8_t *)fire_buffer.buf, (uint8_t *)buffer.buf, width, height, frame_time);
+    render_fire_frame_kernel((uint8_t *)fire_buffer.buf, (uint8_t *)buffer.buf, width, height, frame_time);
 
     return mp_const_none;
 }
 
-static mp_obj_t spiral_frame(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t render_spiral_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t angle_buffer;
     mp_buffer_info_t radius_buffer;
     mp_buffer_info_t buffer;
@@ -49,19 +49,19 @@ static mp_obj_t spiral_frame(size_t n_args, const mp_obj_t *args) {
 
     uint16_t pixel_count = (uint16_t)width * height;
 
-    render_spiral(
+    render_spiral_frame_kernel(
         (const uint8_t *)angle_buffer.buf,
         (const uint8_t *)radius_buffer.buf,
         (uint8_t *)buffer.buf,
-        pixel_count, 
-        frame_time, 
+        pixel_count,
+        frame_time,
         tightness
     );
 
     return mp_const_none;
 }
 
-static mp_obj_t balatro_frame(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t render_balatro_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t angle_buffer;
     mp_buffer_info_t radius_buffer;
     mp_buffer_info_t buffer;
@@ -76,40 +76,40 @@ static mp_obj_t balatro_frame(size_t n_args, const mp_obj_t *args) {
     uint8_t spin_speed = (uint8_t)mp_obj_get_int(args[6]);
     uint8_t contrast = (uint8_t)mp_obj_get_int(args[7]);
 
-    render_balatro(
+    render_balatro_frame_kernel(
         (const uint8_t *)angle_buffer.buf,
         (const uint8_t *)radius_buffer.buf,
         (uint8_t *)buffer.buf,
-        width, 
-        height, 
-        frame_time, 
-        spin_speed, 
+        width,
+        height,
+        frame_time,
+        spin_speed,
         contrast
     );
 
     return mp_const_none;
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(plasma_frame_obj, 4, 4, plasma_frame);
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(fire_frame_obj, 5, 5, fire_frame);
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(spiral_frame_obj, 7, 7, spiral_frame);
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(balatro_frame_obj, 8, 8, balatro_frame);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(render_plasma_frame_obj, 4, 4, render_plasma_frame);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(render_fire_frame_obj, 5, 5, render_fire_frame);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(render_spiral_frame_obj, 7, 7, render_spiral_frame);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(render_balatro_frame_obj, 8, 8, render_balatro_frame);
 
 // IntelliSense stubs for module-specific QSTRs (generated at build time)
 #ifdef __INTELLISENSE__
-#define MP_QSTR_plasma_frame (0)
-#define MP_QSTR_fire_frame (0)
-#define MP_QSTR_spiral_frame (0)
-#define MP_QSTR_balatro_frame (0)
+#define MP_QSTR_render_plasma_frame (0)
+#define MP_QSTR_render_fire_frame (0)
+#define MP_QSTR_render_spiral_frame (0)
+#define MP_QSTR_render_balatro_frame (0)
 #endif
 
 mp_obj_t mpy_init(mp_obj_fun_bc_t *self, size_t n_args, size_t n_kw, mp_obj_t *args) {
     MP_DYNRUNTIME_INIT_ENTRY;
 
-    mp_store_global(MP_QSTR_plasma_frame, MP_OBJ_FROM_PTR(&plasma_frame_obj));
-    mp_store_global(MP_QSTR_fire_frame, MP_OBJ_FROM_PTR(&fire_frame_obj));
-    mp_store_global(MP_QSTR_spiral_frame, MP_OBJ_FROM_PTR(&spiral_frame_obj));
-    mp_store_global(MP_QSTR_balatro_frame, MP_OBJ_FROM_PTR(&balatro_frame_obj));
+    mp_store_global(MP_QSTR_render_plasma_frame, MP_OBJ_FROM_PTR(&render_plasma_frame_obj));
+    mp_store_global(MP_QSTR_render_fire_frame, MP_OBJ_FROM_PTR(&render_fire_frame_obj));
+    mp_store_global(MP_QSTR_render_spiral_frame, MP_OBJ_FROM_PTR(&render_spiral_frame_obj));
+    mp_store_global(MP_QSTR_render_balatro_frame, MP_OBJ_FROM_PTR(&render_balatro_frame_obj));
 
     MP_DYNRUNTIME_INIT_EXIT;
 }

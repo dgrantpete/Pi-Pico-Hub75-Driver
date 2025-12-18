@@ -3,11 +3,11 @@
 
 #include <stdint.h>
 
-void render_plasma(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time);
+void render_plasma_frame_kernel(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time);
 
-void render_fire(uint8_t *fire_buffer, uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time);
+void render_fire_frame_kernel(uint8_t *fire_buffer, uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time);
 
-void render_spiral(
+void render_spiral_frame_kernel(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
     uint8_t *buffer,
@@ -16,7 +16,7 @@ void render_spiral(
     uint8_t tightness
 );
 
-void render_balatro(
+void render_balatro_frame_kernel(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
     uint8_t *buffer,

@@ -2,11 +2,9 @@ import _thread
 import math
 import micropython
 from time import sleep_ms
-
 from machine import Pin
-
 from hub75.driver import Hub75Driver, DEFAULT_ADDRESS_FREQUENCY_DIVIDER, DEFAULT_DATA_FREQUENCY
-from hub75.effects import plasma_frame, fire_frame, spiral_frame, balatro_frame
+from hub75.effects import render_plasma_frame, render_fire_frame, render_spiral_frame, render_balatro_frame
 
 # Display dimensions
 WIDTH = 64
@@ -121,17 +119,17 @@ def _effect_loop():
         if mode == 'balatro':
             assert _spiral_tables is not None
             angle_table, radius_table = _spiral_tables
-            balatro_frame(angle_table, radius_table, rgb_buffer,
-                          WIDTH, HEIGHT, frame_time, current_spin_speed, current_warp_amount)
+            render_balatro_frame(angle_table, radius_table, rgb_buffer,
+                                 WIDTH, HEIGHT, frame_time, current_spin_speed, current_warp_amount)
         elif mode == 'plasma':
-            plasma_frame(rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
+            render_plasma_frame(rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
         elif mode == 'fire':
-            fire_frame(fire_buffer, rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
+            render_fire_frame(fire_buffer, rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
         elif mode == 'spiral':
             assert _spiral_tables is not None
             angle_table, radius_table = _spiral_tables
-            spiral_frame(angle_table, radius_table, rgb_buffer,
-                         WIDTH, HEIGHT, frame_time & 0xFF, current_spin_speed)
+            render_spiral_frame(angle_table, radius_table, rgb_buffer,
+                                WIDTH, HEIGHT, frame_time & 0xFF, current_spin_speed)
 
         driver.load_rgb888(rgb_buffer)
         driver.flip()
