@@ -1,14 +1,15 @@
 import micropython
 import framebuf
-from hub75.driver import Hub75Driver
+from .driver import Hub75Driver
 
 class Hub75Display:
     @micropython.native
     def __init__(self, driver: Hub75Driver):
         self._driver = driver
 
-        self._width = driver.width
-        self._height = driver.height
+        # Assumes that each address only drives a single row (e.g. 1/32 scan for 64-row panel)
+        self._width = driver.shift_register_depth
+        self._height = driver.row_address_count * 2
         self._buffer = bytearray(self._width * self._height * 2)
         self._frame_buffer = framebuf.FrameBuffer(
             self._buffer,
@@ -20,12 +21,12 @@ class Hub75Display:
     @property
     @micropython.native
     def width(self) -> int:
-        return self._driver.width
+        return self._width
     
     @property
     @micropython.native
     def height(self) -> int:
-        return self._driver.height
+        return self._height
     
     @property
     @micropython.native
