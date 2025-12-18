@@ -23,6 +23,6 @@ void load_rgb565_kernel(
     uint8_t *output_data
 );
 
-void clear_buffer(uint8_t *data, size_t len);
+void clear_buffer(uint8_t *data, size_t size);
 
 #endif

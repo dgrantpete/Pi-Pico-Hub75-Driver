@@ -10,25 +10,25 @@ static mp_obj_t plasma_frame(size_t n_args, const mp_obj_t *args) {
 
     uint8_t width = (uint8_t)mp_obj_get_int(args[1]);
     uint8_t height = (uint8_t)mp_obj_get_int(args[2]);
-    uint8_t t = (uint8_t)mp_obj_get_int(args[3]);
+    uint8_t frame_time = (uint8_t)mp_obj_get_int(args[3]);
 
-    plasma_render((uint8_t *)buffer.buf, width, height, t);
+    render_plasma((uint8_t *)buffer.buf, width, height, frame_time);
 
     return mp_const_none;
 }
 
 static mp_obj_t fire_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t fire_buffer;
-    mp_buffer_info_t rgb_buffer;
+    mp_buffer_info_t buffer;
 
     mp_get_buffer_raise(args[0], &fire_buffer, MP_BUFFER_WRITE);
-    mp_get_buffer_raise(args[1], &rgb_buffer, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(args[1], &buffer, MP_BUFFER_WRITE);
 
     uint8_t width = (uint8_t)mp_obj_get_int(args[2]);
     uint8_t height = (uint8_t)mp_obj_get_int(args[3]);
-    uint8_t t = (uint8_t)mp_obj_get_int(args[4]);
+    uint8_t frame_time = (uint8_t)mp_obj_get_int(args[4]);
 
-    fire_render((uint8_t *)fire_buffer.buf, (uint8_t *)rgb_buffer.buf, width, height, t);
+    render_fire((uint8_t *)fire_buffer.buf, (uint8_t *)buffer.buf, width, height, frame_time);
 
     return mp_const_none;
 }
@@ -36,24 +36,26 @@ static mp_obj_t fire_frame(size_t n_args, const mp_obj_t *args) {
 static mp_obj_t spiral_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t angle_buffer;
     mp_buffer_info_t radius_buffer;
-    mp_buffer_info_t rgb_buffer;
+    mp_buffer_info_t buffer;
 
     mp_get_buffer_raise(args[0], &angle_buffer, MP_BUFFER_READ);
     mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
-    mp_get_buffer_raise(args[2], &rgb_buffer, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(args[2], &buffer, MP_BUFFER_WRITE);
 
     uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
     uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
-    uint8_t t = (uint8_t)mp_obj_get_int(args[5]);
+    uint8_t frame_time = (uint8_t)mp_obj_get_int(args[5]);
     uint8_t tightness = (uint8_t)mp_obj_get_int(args[6]);
 
     uint16_t pixel_count = (uint16_t)width * height;
 
-    spiral_render(
+    render_spiral(
         (const uint8_t *)angle_buffer.buf,
         (const uint8_t *)radius_buffer.buf,
-        (uint8_t *)rgb_buffer.buf,
-        pixel_count, t, tightness
+        (uint8_t *)buffer.buf,
+        pixel_count, 
+        frame_time, 
+        tightness
     );
 
     return mp_const_none;
@@ -62,23 +64,27 @@ static mp_obj_t spiral_frame(size_t n_args, const mp_obj_t *args) {
 static mp_obj_t balatro_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t angle_buffer;
     mp_buffer_info_t radius_buffer;
-    mp_buffer_info_t rgb_buffer;
+    mp_buffer_info_t buffer;
 
     mp_get_buffer_raise(args[0], &angle_buffer, MP_BUFFER_READ);
     mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
-    mp_get_buffer_raise(args[2], &rgb_buffer, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(args[2], &buffer, MP_BUFFER_WRITE);
 
     uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
     uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
-    uint16_t t = (uint16_t)mp_obj_get_int(args[5]);
+    uint16_t frame_time = (uint16_t)mp_obj_get_int(args[5]);
     uint8_t spin_speed = (uint8_t)mp_obj_get_int(args[6]);
     uint8_t contrast = (uint8_t)mp_obj_get_int(args[7]);
 
-    balatro_render(
+    render_balatro(
         (const uint8_t *)angle_buffer.buf,
         (const uint8_t *)radius_buffer.buf,
-        (uint8_t *)rgb_buffer.buf,
-        width, height, t, spin_speed, contrast
+        (uint8_t *)buffer.buf,
+        width, 
+        height, 
+        frame_time, 
+        spin_speed, 
+        contrast
     );
 
     return mp_const_none;

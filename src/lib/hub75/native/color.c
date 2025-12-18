@@ -1,60 +1,58 @@
 #include "color.h"
 
-uint16_t hsv_to_rgb565_kernel(uint8_t h, uint8_t s, uint8_t v) {
+uint16_t hsv_to_rgb565_kernel(uint8_t hue, uint8_t saturation, uint8_t value) {
     // Grayscale fast path
-    if (s == 0) {
-        return ((uint16_t)(v & 0xF8) << 8) | ((uint16_t)(v & 0xFC) << 3) | (v >> 3);
+    if (saturation == 0) {
+        return ((uint16_t)(value & 0xF8) << 8) | ((uint16_t)(value & 0xFC) << 3) | (value >> 3);
     }
 
     // Scale hue to 0-1530 range, then extract sector and fraction
-    // This avoids division: sector = h*6/256, frac = (h*6)%256
-    uint16_t h6 = (uint16_t)h * 6;
-    uint8_t sector = h6 >> 8;       // 0-5
-    uint8_t frac = h6 & 0xFF;       // 0-255 within sector
+    // This avoids division: sector = hue * 6 / 256, frac = (hue * 6) % 256
+    uint16_t scaled_hue = (uint16_t)hue * 6;
+    uint8_t hue_sector = scaled_hue >> 8; // 0-5
+    uint8_t sector_fraction = scaled_hue & 0xFF; // 0-255 within sector
 
     // Intermediate values using only multiply and shift
-    uint16_t vs = (uint16_t)v * s;
-    uint8_t p = v - (vs >> 8);                              // min
-    uint8_t q = v - ((uint32_t)vs * frac >> 16);            // ramp down
-    uint8_t t = v - ((uint32_t)vs * (255 - frac) >> 16);    // ramp up
+    uint16_t chroma_range = (uint16_t)value * saturation;
+    uint8_t min_component = value - (chroma_range >> 8);
+    uint8_t descending_component = value - ((uint32_t)chroma_range * sector_fraction >> 16);
+    uint8_t ascending_component = value - ((uint32_t)chroma_range * (255 - sector_fraction) >> 16);
 
     uint8_t r, g, b;
 
-    switch (sector) {
-        case 0:  r = v; g = t; b = p; break;  // Red -> Yellow
-        case 1:  r = q; g = v; b = p; break;  // Yellow -> Green
-        case 2:  r = p; g = v; b = t; break;  // Green -> Cyan
-        case 3:  r = p; g = q; b = v; break;  // Cyan -> Blue
-        case 4:  r = t; g = p; b = v; break;  // Blue -> Magenta
-        default: r = v; g = p; b = q; break;  // Magenta -> Red
+    switch (hue_sector) {
+        case 0:  r = value; g = ascending_component; b = min_component; break; // Red -> Yellow
+        case 1:  r = descending_component; g = value; b = min_component; break; // Yellow -> Green
+        case 2:  r = min_component; g = value; b = ascending_component; break; // Green -> Cyan
+        case 3:  r = min_component; g = descending_component; b = value; break; // Cyan -> Blue
+        case 4:  r = ascending_component; g = min_component; b = value; break; // Blue -> Magenta
+        default: r = value; g = min_component; b = descending_component; break; // Magenta -> Red
     }
 
-    // Pack as RGB565: RRRRRGGGGGGBBBBB
     return ((uint16_t)(r & 0xF8) << 8) | ((uint16_t)(g & 0xFC) << 3) | (b >> 3);
 }
 
-void hsv_to_rgb_kernel(uint8_t h, uint8_t s, uint8_t v,
-                       uint8_t *r, uint8_t *g, uint8_t *b) {
-    if (s == 0) {
-        *r = *g = *b = v;
+void hsv_to_rgb_kernel(uint8_t hue, uint8_t saturation, uint8_t value, uint8_t *r, uint8_t *g, uint8_t *b) {
+    if (saturation == 0) {
+        *r = *g = *b = value;
         return;
     }
 
-    uint16_t h6 = (uint16_t)h * 6;
-    uint8_t sector = h6 >> 8;
-    uint8_t frac = h6 & 0xFF;
+    uint16_t scaled_hue = (uint16_t)hue * 6;
+    uint8_t hue_sector = scaled_hue >> 8;
+    uint8_t sector_fraction = scaled_hue & 0xFF;
 
-    uint16_t vs = (uint16_t)v * s;
-    uint8_t p = v - (vs >> 8);
-    uint8_t q = v - ((uint32_t)vs * frac >> 16);
-    uint8_t t = v - ((uint32_t)vs * (255 - frac) >> 16);
+    uint16_t chroma_range = (uint16_t)value * saturation;
+    uint8_t min_component = value - (chroma_range >> 8);
+    uint8_t descending_component = value - ((uint32_t)chroma_range * sector_fraction >> 16);
+    uint8_t ascending_component = value - ((uint32_t)chroma_range * (255 - sector_fraction) >> 16);
 
-    switch (sector) {
-        case 0:  *r = v; *g = t; *b = p; break;
-        case 1:  *r = q; *g = v; *b = p; break;
-        case 2:  *r = p; *g = v; *b = t; break;
-        case 3:  *r = p; *g = q; *b = v; break;
-        case 4:  *r = t; *g = p; *b = v; break;
-        default: *r = v; *g = p; *b = q; break;
+    switch (hue_sector) {
+        case 0:  *r = value; *g = ascending_component; *b = min_component; break;
+        case 1:  *r = descending_component; *g = value; *b = min_component; break;
+        case 2:  *r = min_component; *g = value; *b = ascending_component; break;
+        case 3:  *r = min_component; *g = descending_component; *b = value; break;
+        case 4:  *r = ascending_component; *g = min_component; *b = value; break;
+        default: *r = value; *g = min_component; *b = descending_component; break;
     }
 }

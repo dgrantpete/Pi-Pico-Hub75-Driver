@@ -1,33 +1,32 @@
 #include "render.h"
 #include <stddef.h>
 
-static inline void hsv_to_rgb_kernel(uint8_t h, uint8_t s, uint8_t v,
-                                     uint8_t *r, uint8_t *g, uint8_t *b) {
-    if (s == 0) {
-        *r = *g = *b = v;
+static inline void hsv_to_rgb_kernel(uint8_t hue, uint8_t saturation, uint8_t value, uint8_t *r, uint8_t *g, uint8_t *b) {
+    if (saturation == 0) {
+        *r = *g = *b = value;
         return;
     }
 
-    uint16_t h6 = (uint16_t)h * 6;
-    uint8_t sector = h6 >> 8;
-    uint8_t frac = h6 & 0xFF;
+    uint16_t scaled_hue = (uint16_t)hue * 6;
+    uint8_t hue_sector = scaled_hue >> 8;
+    uint8_t sector_fraction = scaled_hue & 0xFF;
 
-    uint16_t vs = (uint16_t)v * s;
-    uint8_t p = v - (vs >> 8);
-    uint8_t q = v - ((uint32_t)vs * frac >> 16);
-    uint8_t t = v - ((uint32_t)vs * (255 - frac) >> 16);
+    uint16_t chroma_range = (uint16_t)value * saturation;
+    uint8_t min_component = value - (chroma_range >> 8);
+    uint8_t descending_component = value - ((uint32_t)chroma_range * sector_fraction >> 16);
+    uint8_t ascending_component = value - ((uint32_t)chroma_range * (255 - sector_fraction) >> 16);
 
-    switch (sector) {
-        case 0:  *r = v; *g = t; *b = p; break;
-        case 1:  *r = q; *g = v; *b = p; break;
-        case 2:  *r = p; *g = v; *b = t; break;
-        case 3:  *r = p; *g = q; *b = v; break;
-        case 4:  *r = t; *g = p; *b = v; break;
-        default: *r = v; *g = p; *b = q; break;
+    switch (hue_sector) {
+        case 0:  *r = value; *g = ascending_component; *b = min_component; break;
+        case 1:  *r = descending_component; *g = value; *b = min_component; break;
+        case 2:  *r = min_component; *g = value; *b = ascending_component; break;
+        case 3:  *r = min_component; *g = descending_component; *b = value; break;
+        case 4:  *r = ascending_component; *g = min_component; *b = value; break;
+        default: *r = value; *g = min_component; *b = descending_component; break;
     }
 }
 
-// Pre-computed sine table: sin(i * 2pi / 256) * 127.5 + 127.5
+// Pre-computed sine table: (sin(i * 2π / 256) + 1) * 127.5
 static const uint8_t SIN_TABLE[256] = {
     128,131,134,137,140,143,146,149,152,155,158,162,165,167,170,173,
     176,179,182,185,188,190,193,196,198,201,203,206,208,211,213,215,
@@ -47,20 +46,14 @@ static const uint8_t SIN_TABLE[256] = {
      79, 82, 85, 88, 90, 93, 97,100,103,106,109,112,115,118,121,124
 };
 
-// Balatro gradient: transitions go THROUGH DARKNESS, not through intermediate hues
-// This avoids the purple/magenta that appears when directly blending red<->blue
-// Generated with tools/generate_balatro_gradient.py - RGB888 format for simpler handling
-//
 // Structure (256 RGB triplets = 768 bytes):
 //   0-85:   RED zone (dark->crimson->dark)
 //   86-170: BLUE zone (dark->blue->dark)
 //   171-255: DARK zone (deep darkness)
 //
-// V2: Added Gaussian peak brightness boost (max_boost=140) for brighter highlights
 static const uint8_t BALATRO_GRADIENT[256 * 3] = {
-    // 0-85: RED zone (with boosted peak brightness at indices 27-43)
-      8, 20, 24,   24, 16, 16,   33, 16, 16,   49, 16, 16,
-     57, 16, 16,   66, 16, 16,   82, 16, 16,   90, 16, 16,
+    8, 20, 24,   24, 16, 16,   33, 16, 16,   49, 16, 16,
+    57, 16, 16,   66, 16, 16,   82, 16, 16,   90, 16, 16,
     107, 16,  8,  115, 12,  8,  132, 12,  8,  140, 12,  8,
     140, 12,  8,  148, 16,  8,  156, 16,  8,  165, 16,  8,
     165, 16,  8,  173, 20, 16,  181, 20, 16,  189, 20, 16,
@@ -129,8 +122,7 @@ static const uint8_t BALATRO_GRADIENT[256 * 3] = {
       8, 16, 16,
 };
 
-// Classic Doom fire palette (37 colors): black -> red -> orange -> yellow -> white
-// Converted from RGB565 using driver-style bit replication
+// Classic Doom fire palette: black -> red -> orange -> yellow -> white
 static const uint8_t FIRE_PALETTE[37 * 3] = {
       0,  0,  0,  // 0: black
       8,  0,  0,  16,  0,  0,  24,  0,  0,  33,  0,  0,  // 1-4: dark red
@@ -144,153 +136,146 @@ static const uint8_t FIRE_PALETTE[37 * 3] = {
     198,166,  0, 231,231,  0, 255,239,  0, 255,255,  0,  // 33-36: yellow to white
 };
 
-// Stateless hash-based pseudo-random (no .data section needed)
-static inline uint32_t fire_hash(uint32_t x, uint32_t y, uint32_t t) {
-    uint32_t h = x * 374761393u + y * 668265263u + t * 2654435761u;
-    h = (h ^ (h >> 13)) * 1274126177u;
-    return h ^ (h >> 16);
+static inline uint32_t fire_hash(uint32_t x, uint32_t y, uint32_t frame_time) {
+    uint32_t hash_value = x * 374761393u + y * 668265263u + frame_time * 2654435761u;
+    hash_value = (hash_value ^ (hash_value >> 13)) * 1274126177u;
+    return hash_value ^ (hash_value >> 16);
 }
 
-void plasma_render(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t t) {
+void render_plasma(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
     for (uint8_t y = 0; y < height; y++) {
         for (uint8_t x = 0; x < width; x++) {
             // Combine multiple sine waves for plasma effect
-            uint8_t v1 = SIN_TABLE[(x + t) & 0xFF];
-            uint8_t v2 = SIN_TABLE[(y + t) & 0xFF];
-            uint8_t v3 = SIN_TABLE[((x + y) + t) & 0xFF];
+            uint8_t horizontal_wave = SIN_TABLE[(x + frame_time) & 0xFF];
+            uint8_t vertical_wave = SIN_TABLE[(y + frame_time) & 0xFF];
+            uint8_t diagonal_wave = SIN_TABLE[((x + y) + frame_time) & 0xFF];
             // Radial component: sqrt approximated by (x^2+y^2)>>4
-            uint8_t v4 = SIN_TABLE[(((x * x + y * y) >> 4) + t) & 0xFF];
+            uint8_t radial_wave = SIN_TABLE[(((x * x + y * y) >> 4) + frame_time) & 0xFF];
 
             // Average the waves to get hue (0-255)
-            uint8_t hue = (v1 + v2 + v3 + v4) >> 2;
+            uint8_t hue = (horizontal_wave + vertical_wave + diagonal_wave + radial_wave) >> 2;
 
-            // Convert to RGB888
             uint8_t r, g, b;
             hsv_to_rgb_kernel(hue, 255, 255, &r, &g, &b);
 
-            // Write RGB888
-            size_t idx = ((size_t)y * width + x) * 3;
-            buffer[idx] = r;
-            buffer[idx + 1] = g;
-            buffer[idx + 2] = b;
+            size_t buffer_index = ((size_t)y * width + x) * 3;
+            buffer[buffer_index] = r;
+            buffer[buffer_index + 1] = g;
+            buffer[buffer_index + 2] = b;
         }
     }
 }
 
-void fire_render(uint8_t *fire_buf, uint8_t *rgb_buf,
-                 uint8_t width, uint8_t height, uint8_t t) {
+void render_fire(uint8_t *fire_buffer, uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
     // Propagate fire upward with cooling and horizontal spread
     for (int y = 0; y < height - 1; y++) {
         for (int x = 0; x < width; x++) {
             // Get pixel below
-            int src_idx = (y + 1) * width + x;
-            uint8_t src_val = fire_buf[src_idx];
+            int source_index = (y + 1) * width + x;
+            uint8_t source_value = fire_buffer[source_index];
 
             // Pseudo-random value from position and frame (stateless)
-            uint32_t rand = fire_hash(x, y, t);
+            uint32_t random_value = fire_hash(x, y, frame_time);
 
             // Horizontal drift: -1, 0, +1 based on lower bits
-            int dst_x = x - (int)(rand & 1) + (int)((rand >> 1) & 1);
-            if (dst_x < 0) dst_x = 0;
-            if (dst_x >= width) dst_x = width - 1;
+            int destination_x = x - (int)(random_value & 1) + (int)((random_value >> 1) & 1);
+            if (destination_x < 0) destination_x = 0;
+            if (destination_x >= width) destination_x = width - 1;
 
-            int decay = ((rand >> 2) & 3);
-            int new_val = (int)src_val - decay;
+            int decay = ((random_value >> 2) & 3);
+            int new_val = (int)source_value - decay;
             if (new_val < 0) new_val = 0;
 
-            int dst_idx = y * width + dst_x;
-            fire_buf[dst_idx] = (uint8_t)new_val;
+            int destination_index = y * width + destination_x;
+            fire_buffer[destination_index] = (uint8_t)new_val;
         }
     }
 
-    // Convert fire buffer to RGB888
-    for (int i = 0; i < width * height; i++) {
-        uint8_t intensity = fire_buf[i];
+    for (int pixel_index = 0; pixel_index < width * height; pixel_index++) {
+        uint8_t intensity = fire_buffer[pixel_index];
         if (intensity > 36) intensity = 36;
-        size_t pal_idx = intensity * 3;
-        rgb_buf[i * 3] = FIRE_PALETTE[pal_idx];
-        rgb_buf[i * 3 + 1] = FIRE_PALETTE[pal_idx + 1];
-        rgb_buf[i * 3 + 2] = FIRE_PALETTE[pal_idx + 2];
+        size_t palette_index = intensity * 3;
+        buffer[pixel_index * 3] = FIRE_PALETTE[palette_index];
+        buffer[pixel_index * 3 + 1] = FIRE_PALETTE[palette_index + 1];
+        buffer[pixel_index * 3 + 2] = FIRE_PALETTE[palette_index + 2];
     }
 }
 
-void spiral_render(
+void render_spiral(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
-    uint8_t *rgb_buf,
+    uint8_t *buffer,
     uint16_t pixel_count,
-    uint8_t t,
+    uint8_t frame_time,
     uint8_t tightness
 ) {
-    for (uint16_t i = 0; i < pixel_count; i++) {
-        // Core spiral formula: hue = angle + radius*tightness + time
-        uint8_t hue = angle_table[i] + ((radius_table[i] * tightness) >> 4) + t;
+    for (uint16_t pixel_index = 0; pixel_index < pixel_count; pixel_index++) {
+        // Core spiral formula: hue = angle + radius * tightness + time
+        uint8_t hue = angle_table[pixel_index] + ((radius_table[pixel_index] * tightness) >> 4) + frame_time;
 
         uint8_t r, g, b;
         hsv_to_rgb_kernel(hue, 255, 255, &r, &g, &b);
-        rgb_buf[i * 3] = r;
-        rgb_buf[i * 3 + 1] = g;
-        rgb_buf[i * 3 + 2] = b;
+        buffer[pixel_index * 3] = r;
+        buffer[pixel_index * 3 + 1] = g;
+        buffer[pixel_index * 3 + 2] = b;
     }
 }
 
-void balatro_render(
+void render_balatro(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
-    uint8_t *rgb_buf,
+    uint8_t *buffer,
     uint8_t width, uint8_t height,
-    uint16_t t,
+    uint16_t frame_time,
     uint8_t spin_speed,
     uint8_t warp_amount
 ) {
     for (uint8_t y = 0; y < height; y++) {
         for (uint8_t x = 0; x < width; x++) {
-            uint16_t idx = (uint16_t)y * width + x;
+            uint16_t pixel_index = (uint16_t)y * width + x;
 
             // Get pre-computed angle and radius
-            uint8_t angle = angle_table[idx];
-            uint8_t radius = radius_table[idx];
+            uint8_t angle = angle_table[pixel_index];
+            uint8_t radius = radius_table[pixel_index];
 
-            // Create spiral: angle + radius*tightness + time
-            // Using >> 2 instead of >> 3 to "zoom out" and show more of the pattern
-            int16_t spiral = (int16_t)angle + ((radius * spin_speed) >> 2) - (t >> 1);
+            // Create spiral: angle + radius * spin_speed + time
+            int16_t spiral = (int16_t)angle + ((radius * spin_speed) >> 2) - (frame_time >> 1);
 
             // Domain warping - multiple layers of sine-based distortion
-            // This creates the organic, wobbly boundaries between colors
+            // Creates the organic, wobbly boundaries between colors
             int16_t warp = 0;
 
             // Layer 1: Position-based low frequency
-            uint8_t w1 = (uint8_t)((x * 5 + y * 7 + (t >> 2)) & 0xFF);
-            warp += (int8_t)(SIN_TABLE[w1] - 128);
+            uint8_t low_frequency_warp = (uint8_t)((x * 5 + y * 7 + (frame_time >> 2)) & 0xFF);
+            warp += (int8_t)(SIN_TABLE[low_frequency_warp] - 128);
 
             // Layer 2: Spiral-based (warps along the spiral bands)
-            uint8_t w2 = (uint8_t)((spiral + radius + (t >> 1)) & 0xFF);
-            warp += (int8_t)(SIN_TABLE[w2] - 128);
+            uint8_t spiral_warp = (uint8_t)((spiral + radius + (frame_time >> 1)) & 0xFF);
+            warp += (int8_t)(SIN_TABLE[spiral_warp] - 128);
 
             // Layer 3: High frequency detail
-            uint8_t w3 = (uint8_t)((x * 11 - y * 13 + t) & 0xFF);
-            warp += (int8_t)(SIN_TABLE[w3] - 128) >> 1;
+            uint8_t high_frequency_warp = (uint8_t)((x * 11 - y * 13 + frame_time) & 0xFF);
+            warp += (int8_t)(SIN_TABLE[high_frequency_warp] - 128) >> 1;
 
             // Layer 4: Angle-based swirl
-            uint8_t w4 = (uint8_t)((angle * 3 + (t >> 2)) & 0xFF);
-            warp += (int8_t)(SIN_TABLE[w4] - 128) >> 1;
+            uint8_t swirl_warp = (uint8_t)((angle * 3 + (frame_time >> 2)) & 0xFF);
+            warp += (int8_t)(SIN_TABLE[swirl_warp] - 128) >> 1;
 
             // Layer 5: Radius-based (creates variation from center to edge)
-            uint8_t w5 = (uint8_t)((radius * 4 - t) & 0xFF);
-            warp += (int8_t)(SIN_TABLE[w5] - 128) >> 2;
+            uint8_t radial_warp = (uint8_t)((radius * 4 - frame_time) & 0xFF);
+            warp += (int8_t)(SIN_TABLE[radial_warp] - 128) >> 2;
 
             // Apply warp to spiral value
-            // warp_amount controls how much organic distortion (1-15)
             int16_t warped_spiral = spiral + ((warp * warp_amount) >> 6);
 
             // Final band value (wraps 0-255)
             uint8_t band_val = (uint8_t)(warped_spiral & 0xFF);
 
             // Look up color from smooth gradient table (RGB888)
-            size_t grad_idx = band_val * 3;
-            rgb_buf[idx * 3] = BALATRO_GRADIENT[grad_idx];
-            rgb_buf[idx * 3 + 1] = BALATRO_GRADIENT[grad_idx + 1];
-            rgb_buf[idx * 3 + 2] = BALATRO_GRADIENT[grad_idx + 2];
+            size_t gradient_index = band_val * 3;
+            buffer[pixel_index * 3] = BALATRO_GRADIENT[gradient_index];
+            buffer[pixel_index * 3 + 1] = BALATRO_GRADIENT[gradient_index + 1];
+            buffer[pixel_index * 3 + 2] = BALATRO_GRADIENT[gradient_index + 2];
         }
     }
 }
