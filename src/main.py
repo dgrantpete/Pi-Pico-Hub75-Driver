@@ -31,7 +31,6 @@ _effect_mode = None
 spin_speed = 4
 warp_amount = 14
 
-
 def bit_length(n: int) -> int:
     length = 0
     while n > 0:
@@ -55,13 +54,11 @@ def _init():
     )
     print("Ready!")
 
-
 def _ensure_buffers():
     global _rgb_buffer, _fire_buffer
     if _rgb_buffer is None:
         _rgb_buffer = bytearray(WIDTH * HEIGHT * 3)
         _fire_buffer = bytearray(WIDTH * HEIGHT)
-
 
 def _ensure_spiral_tables():
     global _spiral_tables
@@ -90,14 +87,12 @@ def _ensure_spiral_tables():
 
     _spiral_tables = (angle_table, radius_table)
 
-
 def _init_fire():
     assert _fire_buffer is not None
     for i in range(len(_fire_buffer)):
         _fire_buffer[i] = 0
     for x in range(WIDTH):
         _fire_buffer[(HEIGHT - 1) * WIDTH + x] = 36
-
 
 @micropython.native
 def _effect_loop():
@@ -119,8 +114,16 @@ def _effect_loop():
         if mode == 'balatro':
             assert _spiral_tables is not None
             angle_table, radius_table = _spiral_tables
-            render_balatro_frame(angle_table, radius_table, rgb_buffer,
-                                 WIDTH, HEIGHT, frame_time, current_spin_speed, current_warp_amount)
+            render_balatro_frame(
+                angle_table,
+                radius_table,
+                rgb_buffer,
+                WIDTH,
+                HEIGHT,
+                frame_time,
+                current_spin_speed,
+                current_warp_amount
+            )
         elif mode == 'plasma':
             render_plasma_frame(rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
         elif mode == 'fire':
@@ -128,8 +131,15 @@ def _effect_loop():
         elif mode == 'spiral':
             assert _spiral_tables is not None
             angle_table, radius_table = _spiral_tables
-            render_spiral_frame(angle_table, radius_table, rgb_buffer,
-                                WIDTH, HEIGHT, frame_time & 0xFF, current_spin_speed)
+            render_spiral_frame(
+                angle_table,
+                radius_table,
+                rgb_buffer,
+                WIDTH,
+                HEIGHT,
+                frame_time & 0xFF,
+                current_spin_speed
+            )
 
         driver.load_rgb888(rgb_buffer)
         driver.flip()
@@ -137,7 +147,6 @@ def _effect_loop():
 
     driver.clear()
     driver.flip()
-
 
 def _start_effect(mode):
     global _running, _effect_mode
@@ -155,30 +164,25 @@ def _start_effect(mode):
     _running = True
     _thread.start_new_thread(_effect_loop, ())
 
-
 def balatro():
     _init()
     _start_effect('balatro')
     print("Balatro started. Adjust spin_speed / warp_amount")
-
 
 def plasma():
     _init()
     _start_effect('plasma')
     print("Plasma started.")
 
-
 def fire():
     _init()
     _start_effect('fire')
     print("Fire started.")
 
-
 def spiral():
     _init()
     _start_effect('spiral')
     print("Spiral started. Adjust spin_speed")
-
 
 def stop():
     global _running
@@ -187,7 +191,6 @@ def stop():
     _running = False
     sleep_ms(100)
     print("Stopped.")
-
 
 def _on_demo_button(pin):
     global _demo_mode
@@ -211,7 +214,6 @@ def _on_demo_button(pin):
         print(f"Demo mode: {frequency} Hz")
 
 _DEMO_BUTTON.irq(trigger=Pin.IRQ_FALLING, handler=_on_demo_button)
-
 
 print("=== HUB75 Interactive Demo ===")
 print("Commands: balatro(), plasma(), fire(), spiral(), stop()")

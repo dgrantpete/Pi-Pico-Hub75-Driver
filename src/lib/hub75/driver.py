@@ -236,12 +236,6 @@ class Hub75Driver:
 
     @micropython.native
     def set_frequency(self, data_frequency=None, address_frequency=None):
-        """Change state machine frequencies via direct register writes.
-
-        Args:
-            data_frequency: Data frequency in Hz. If None, unchanged.
-            address_frequency: Address frequency in Hz. If None, unchanged.
-        """
         system_frequency = machine.freq()
         pio_base = _PIO_BASE_ADDRESSES[self._pio_block_id]
 

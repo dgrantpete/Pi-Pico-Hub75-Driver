@@ -74,7 +74,7 @@ static mp_obj_t render_balatro_frame(size_t n_args, const mp_obj_t *args) {
     uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
     uint16_t frame_time = (uint16_t)mp_obj_get_int(args[5]);
     uint8_t spin_speed = (uint8_t)mp_obj_get_int(args[6]);
-    uint8_t contrast = (uint8_t)mp_obj_get_int(args[7]);
+    uint8_t warp_amount = (uint8_t)mp_obj_get_int(args[7]);
 
     render_balatro_frame_kernel(
         (const uint8_t *)angle_buffer.buf,
@@ -84,7 +84,7 @@ static mp_obj_t render_balatro_frame(size_t n_args, const mp_obj_t *args) {
         height,
         frame_time,
         spin_speed,
-        contrast
+        warp_amount
     );
 
     return mp_const_none;
