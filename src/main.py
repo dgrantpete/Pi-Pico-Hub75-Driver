@@ -3,17 +3,40 @@ import math
 import micropython
 from time import sleep_ms
 from machine import Pin
-from hub75.driver import Hub75Driver, DEFAULT_ADDRESS_FREQUENCY_DIVIDER, DEFAULT_DATA_FREQUENCY
+from hub75 import Hub75Driver
 from hub75.effects import render_plasma_frame, render_fire_frame, render_spiral_frame, render_balatro_frame
 
-# Display dimensions
+# CONFIGURATION
+
 WIDTH = 64
 HEIGHT = 64
 
-# Demo mode state
-_DEMO_BUTTON = Pin(28, Pin.IN, Pin.PULL_UP)
-_DEMO_FREQUENCIES = (3_000, 10_000, 50_000, 150_000)
-_demo_mode = 0
+# First GPIO pin index for pixel data
+# Requires 6 contiguous pins for R1, G1, B1, R2, G2, B2
+BASE_DATA_PIN = 0
+
+# First GPIO pin index for clock and latch
+# Requires 2 contiguous pins for CLK and LAT
+BASE_CLOCK_PIN = 6
+
+# GPIO pin index for output enable (OE)
+OUTPUT_ENABLE_PIN = 8
+
+# First GPIO pin index for address lines
+# Requires contiguous pins for each address, e.g. A, B, C, D, ...
+# For typical indoor panels, this is usually HEIGHT / 2 address lines
+BASE_ADDRESS_PIN = 9
+
+# Speed of the data sent to the panel
+# Different panels have different maximum speeds, this value can be adjusted as needed
+# Artifacting will occur if the speed is too high
+DATA_FREQUENCY = 20_000_000
+
+# Adjustable parameters to control effects
+SPIN_SPEED = 4
+WARP_AMOUNT = 14
+
+# GLOBAL STATE
 
 # Global driver
 driver = None
@@ -26,10 +49,6 @@ _spiral_tables = None
 # Effect control state
 _running = False
 _effect_mode = None
-
-# Adjustable parameters (modify these while effects run)
-spin_speed = 4
-warp_amount = 14
 
 def bit_length(n: int) -> int:
     length = 0
@@ -47,10 +66,11 @@ def _init():
     driver = Hub75Driver(
         address_bit_count=bit_length(HEIGHT // 2 - 1),
         shift_register_depth=WIDTH,
-        base_address_pin=Pin(18),
-        base_data_pin=Pin(0),
-        base_clock_pin=Pin(6),
-        output_enable_pin=Pin(12)
+        base_address_pin=Pin(BASE_ADDRESS_PIN),
+        base_data_pin=Pin(BASE_DATA_PIN),
+        base_clock_pin=Pin(BASE_CLOCK_PIN),
+        output_enable_pin=Pin(OUTPUT_ENABLE_PIN),
+        data_frequency=DATA_FREQUENCY
     )
     print("Ready!")
 
@@ -108,8 +128,8 @@ def _effect_loop():
 
     while _running:
         mode = _effect_mode
-        current_spin_speed = spin_speed
-        current_warp_amount = warp_amount
+        current_spin_speed = SPIN_SPEED
+        current_warp_amount = WARP_AMOUNT
 
         if mode == 'balatro':
             assert _spiral_tables is not None
@@ -167,7 +187,7 @@ def _start_effect(mode):
 def balatro():
     _init()
     _start_effect('balatro')
-    print("Balatro started. Adjust spin_speed / warp_amount")
+    print("Balatro started.")
 
 def plasma():
     _init()
@@ -182,7 +202,7 @@ def fire():
 def spiral():
     _init()
     _start_effect('spiral')
-    print("Spiral started. Adjust spin_speed")
+    print("Spiral started.")
 
 def stop():
     global _running
@@ -192,31 +212,29 @@ def stop():
     sleep_ms(100)
     print("Stopped.")
 
-def _on_demo_button(pin):
-    global _demo_mode
-    if driver is None:
-        return
+def print_pinout():
+    address_bit_count = bit_length(HEIGHT // 2 - 1)
 
-    _demo_mode = (_demo_mode + 1) % (len(_DEMO_FREQUENCIES) + 1)
+    def create_address_pinout(address_index):
+        return f'    {ord("A") + address_index:c}: GPIO {address_index + BASE_ADDRESS_PIN}'
 
-    if _demo_mode == 0:
-        driver.set_frequency(
-            data_frequency=DEFAULT_DATA_FREQUENCY,
-            address_frequency=DEFAULT_DATA_FREQUENCY // DEFAULT_ADDRESS_FREQUENCY_DIVIDER
-        )
-        print("Demo mode: NORMAL")
-    else:
-        frequency = _DEMO_FREQUENCIES[_demo_mode - 1]
-        driver.set_frequency(
-            data_frequency=frequency,
-            address_frequency=frequency
-        )
-        print(f"Demo mode: {frequency} Hz")
+    pinout = f"""Pinout:
+    R1: GPIO {BASE_DATA_PIN}
+    G1: GPIO {BASE_DATA_PIN + 1}
+    B1: GPIO {BASE_DATA_PIN + 2}
+    R2: GPIO {BASE_DATA_PIN + 3}
+    G2: GPIO {BASE_DATA_PIN + 4}
+    B2: GPIO {BASE_DATA_PIN + 5}
+    CLK: GPIO {BASE_CLOCK_PIN}
+    LAT: GPIO {BASE_CLOCK_PIN + 1}
+    OE: GPIO {OUTPUT_ENABLE_PIN}
+{'\n'.join(create_address_pinout(address_index) for address_index in range(address_bit_count))}
+    """
 
-_DEMO_BUTTON.irq(trigger=Pin.IRQ_FALLING, handler=_on_demo_button)
+    print(pinout)
 
 print("=== HUB75 Interactive Demo ===")
-print("Commands: balatro(), plasma(), fire(), spiral(), stop()")
-print("Controls: spin_speed, warp_amount")
+print("Commands: print_pinout(), balatro(), plasma(), fire(), spiral(), stop()")
 
 balatro()
+print_pinout()
