@@ -1,5 +1,7 @@
 # Pi Pico HUB75 Driver
 
+*This is a full rewrite of [my original project from High School](/tree/92458f3).*
+
 A high-performance MicroPython driver for HUB75 LED matrix panels on the Raspberry Pi Pico.
 
 - **PIO + DMA** - CPU-free display refresh
