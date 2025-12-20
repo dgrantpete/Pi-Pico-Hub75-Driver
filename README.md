@@ -54,12 +54,58 @@ Connect GND from the Pico to GND on the HUB75 panel.
 
 ## Installation
 
-1. Clone or download this repository
-2. Copy the contents of `pico/` to your Pico (using Thonny, mpremote, or similar)
-3. Edit `main.py` to match your panel configuration if needed
-4. Reboot the Pico
+### Option 1: mip (Recommended)
 
-The demo runs automatically on boot.
+Install the library using MicroPython's package manager.
+
+**From your computer (via mpremote):**
+```bash
+mpremote mip install https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest/download/package.json
+```
+
+**On-device (requires network connection):**
+```python
+import mip
+mip.install("https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest/download/package.json")
+```
+
+### Option 2: Download Zip
+
+1. Download the latest `hub75-vX.X.X.zip` from [Releases](/releases/latest)
+2. Extract and copy contents to your Pico
+
+### Option 3: Build from Source
+
+See [Building from Source](#building-from-source) below.
+
+---
+
+### Release vs Dev Versions
+
+Each release includes two variants:
+
+| Version | Files | Includes | Best for |
+|---------|-------|----------|----------|
+| Release | `package.json`, `hub75-vX.X.X.zip` | Compiled `.mpy` files | Production use |
+| Dev | `package-dev.json`, `hub75-vX.X.X-dev.zip` | Source `.py` files + benchmarks | Debugging, development |
+
+To install the dev version via mip:
+```bash
+mpremote mip install https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest/download/package-dev.json
+```
+
+---
+
+### Running the Demo
+
+The mip package includes only the library. To run the interactive demo:
+
+1. Download [`main.py`](src/main.py) from this repository
+2. Edit the pin configuration to match your wiring
+3. Copy to your Pico's root directory
+4. Reboot - the demo runs automatically
+
+Alternatively, download the full zip from [Releases](/releases/latest) which includes `main.py`.
 
 ## Usage
 
