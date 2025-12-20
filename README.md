@@ -21,8 +21,6 @@ Benchmarks on a 64x64 panel:
 | RP2350 | RGB888 | 2.2 ms | ~448 |
 | RP2350 | RGB565 | 2.6 ms | ~390 |
 
-The RP2350 is approximately 2x faster than the RP2040 for frame updates.
-
 ## Hardware Requirements
 
 - Raspberry Pi Pico (RP2040) or Pico 2 (RP2350)
@@ -189,52 +187,219 @@ The driver achieves CPU-free display refresh using the RP2040/RP2350's PIO and D
   }
 }}%%
 
-flowchart LR
-    subgraph CPU ["CPU (frame update only)"]
-        A[Your Code] --> B[load_rgb888]
-        B --> C[flip]
+flowchart TB
+    subgraph APP ["Application Layer"]
+        direction LR
+        A[Your Code] --> B["load_rgb888()"]
+        B --> C["flip()"]
     end
 
-    subgraph AUTO ["Runs Without CPU"]
-        subgraph DMA ["DMA Chain"]
-            D[Data DMA] <--> E[Control Flow DMA]
+    subgraph CONVERT ["Native C Conversion"]
+        D["RGB → 8 Bitplanes"]
+    end
+
+    subgraph BUFFERS ["Double Buffer"]
+        direction LR
+        E["Inactive Buffer<br/>(CPU writes)"]
+        F["Active Buffer<br/>(DMA reads)"]
+        E <-. "flip() swaps" .-> F
+    end
+
+    subgraph AUTONOMOUS ["Runs Without CPU"]
+        subgraph DMACHAIN ["DMA Chain"]
+            direction LR
+            G["Data DMA"] -- "chains to" --> H["Control Flow DMA"]
+            H -- "reloads" --> G
         end
 
         subgraph PIO ["PIO State Machines"]
-            F[Data State Machine] --> G[Address State Machine]
+            direction LR
+            I["Data SM<br/>pixels → shift registers"]
+            J["Address SM<br/>row select + BCM timing"]
+            I <-- "IRQ sync" --> J
         end
 
-        D --> F
+        DMACHAIN --> PIO
     end
 
-    C -.-> D
-    G --> H[LED Matrix]
+    subgraph HW ["HUB75 Panel"]
+        direction LR
+        K["Shift Registers"] --> L["Output Latches"] --> M["LED Matrix"]
+    end
+
+    APP --> CONVERT
+    CONVERT --> BUFFERS
+    BUFFERS --> AUTONOMOUS
+    PIO --> HW
 
     classDef default fill:#334155,stroke:#64748b,color:#f1f5f9
-    classDef external fill:#0d9488,stroke:#14b8a6,color:#f0fdfa
-    
-    class H external
+    classDef cpuLayer fill:#1e40af,stroke:#3b82f6,color:#f1f5f9
+    classDef autonomous fill:#065f46,stroke:#10b981,color:#f1f5f9
+    classDef hardware fill:#0d9488,stroke:#14b8a6,color:#f0fdfa
+
+    class APP,CONVERT cpuLayer
+    class AUTONOMOUS autonomous
+    class HW,M hardware
 ```
 
-**After `flip()`, the CPU is completely free.** The DMA chain continuously streams pixel data to the PIO state machines, which handle all timing-critical operations:
+**After `flip()`, the CPU is completely free** — the hardware takes over and continuously refreshes the display. Here's what's happening under the hood:
 
-- **Data SM**: Clocks pixels out to the shift registers
-- **Address SM**: Multiplexes rows and controls PWM timing for color depth
-- **Double buffering**: Write to the inactive buffer while the active one displays
+### The Pipeline
 
-## Configuration
+1. **Native C Conversion**: Your RGB data is transformed into 8 bitplanes. Each bitplane holds one bit of color depth for all pixels, packed as 6-bit values (R1,G1,B1,R2,G2,B2) for simultaneous dual-row output.
 
-Edit the constants at the top of `main.py` to match your setup:
+2. **Double Buffering**: Two frame buffers alternate roles. The CPU writes to the inactive buffer while DMA reads from the active one. `flip()` atomically swaps a pointer — no tearing, no blocking.
+
+3. **DMA Chain**: Two DMA channels form a self-sustaining loop. The Data DMA streams bitplane data to the PIO, then chains to the Control Flow DMA, which reloads the Data DMA's read address and restarts the cycle.
+
+4. **PIO State Machines**: Two state machines run in parallel, synchronized via hardware IRQs:
+   - **Data SM**: Clocks pixel data into the panel's shift registers and controls the latch signal
+   - **Address SM**: Outputs the row address and generates precise BCM timing delays
+
+5. **Binary Code Modulation (BCM)**: Instead of traditional PWM, each bitplane is displayed with exponentially weighted timing (1:2:4:8:16:32:64:128). This creates 256 brightness levels per color channel with just 8 display passes per frame
+
+## Panel Configuration Guide
+
+HUB75 panels come in many sizes and scan rates. This section explains how to read your panel's specs and configure the driver.
+
+### Reading Your Panel
+
+Most panels have a label on the back with specs like:
+
+```
+64x64  1/32S  Indoor
+```
+
+The key values are:
+- **Resolution** (e.g., `64x64`): Width × Height in pixels
+- **Scan rate** (e.g., `1/32S`): How many rows are lit simultaneously
+
+### Understanding Scan Rate
+
+HUB75 panels use **multiplexing** — they don't light all rows at once. Instead, they rapidly cycle through addresses, lighting a fraction of rows at any moment.
+
+*You can watch this happen in real time by lowering the data frequency below about 10 KHz with `driver.set_frequency(10_000)`; you'll see only a few rows lit up at a time.*
+
+The scan rate tells you what fraction of rows are lit simultaneously:
+- **1/32 scan**: 1/32 of the rows are lit at once (e.g., 2 rows on a 64-row panel)
+- **1/16 scan**: 1/16 of the rows lit (e.g., 2 rows on a 32-row panel)
+- **1/8 scan**: 1/8 of the rows lit (e.g., 2 rows on a 16-row panel, or 4 rows on a 32-row outdoor panel)
+
+**Standard indoor panels** light 2 rows at a time. **Outdoor panels** with lower scan rates (1/4, 1/2) may light 4+ rows at a time for increased brightness.
+
+**How to find your configuration:**
+1. Check the panel label for scan rate (e.g., "1/32S")
+2. Count the address pins (A, B, C, D, E) — this directly gives you `address_bit_count`
+
+### The Two Key Parameters
 
 ```python
-WIDTH = 64              # Panel width in pixels
-HEIGHT = 64             # Panel height in pixels
-BASE_DATA_PIN = 0       # First GPIO for R1,G1,B1,R2,G2,B2
-BASE_CLOCK_PIN = 6      # First GPIO for CLK,LAT
-OUTPUT_ENABLE_PIN = 8   # GPIO for OE
-BASE_ADDRESS_PIN = 9    # First GPIO for address lines
-DATA_FREQUENCY = 20_000_000  # Data clock speed (adjust if you see artifacts)
+Hub75Driver(
+    address_bit_count=5,      # ← Number of address pins on your panel
+    shift_register_depth=64,  # ← Pixels clocked per address cycle
+    ...
+)
 ```
+
+#### `address_bit_count`
+The number of address lines your panel uses. Count the address pins on your panel's input connector (A, B, C, D, E).
+
+| Address Pins | address_bit_count |
+|--------------|-------------------|
+| A, B, C      | 3                 |
+| A, B, C, D   | 4                 |
+| A, B, C, D, E| 5                 |
+
+#### `shift_register_depth`
+The number of pixels clocked into the panel per address cycle. For **standard indoor panels**, this equals the panel width.
+
+**Outdoor panels** with lower scan rates (1/4, 1/2) may light more than 2 rows simultaneously. These panels often require clocking in more data per address — for example, `width × 2` pixels if 4 rows light at once. In this case, set `shift_register_depth` to the total pixels per cycle, not just the panel width.
+
+### Common Panel Configurations
+
+**Standard indoor panels** (2 rows lit at a time):
+
+| Panel | Scan Rate | address_bit_count | shift_register_depth |
+|-------|-----------|-------------------|----------------------|
+| 32×16 | 1/8       | 3                 | 32                   |
+| 32×32 | 1/16      | 4                 | 32                   |
+| 64×32 | 1/16      | 4                 | 64                   |
+| 64×64 | 1/32      | 5                 | 64                   |
+| 128×64| 1/32      | 5                 | 128                  |
+
+**Outdoor panels** (4+ rows lit at a time):
+
+| Panel | Scan Rate | address_bit_count | shift_register_depth |
+|-------|-----------|-------------------|----------------------|
+| 64×32 | 1/8       | 3                 | 128                  |
+| 64×32 | 1/4       | 2                 | 256                  |
+
+For outdoor panels, `shift_register_depth = width × (rows_lit_at_once ÷ 2)`.
+
+### Complete Configuration Example
+
+For a **64×64 panel with 1/32 scan**:
+
+```python
+from hub75 import Hub75Driver
+from machine import Pin
+
+driver = Hub75Driver(
+    address_bit_count=5,        # 5 address lines (A-E) for 1/32 scan
+    shift_register_depth=64,    # 64 pixels wide
+    base_data_pin=Pin(0),       # R1,G1,B1,R2,G2,B2 on GPIO 0-5
+    base_clock_pin=Pin(6),      # CLK,LAT on GPIO 6-7
+    output_enable_pin=Pin(8),   # OE on GPIO 8
+    base_address_pin=Pin(9),    # A,B,C,D,E on GPIO 9-13
+    data_frequency=25_000_000   # 25 MHz pixel clock
+)
+```
+
+### Chaining Multiple Panels
+
+For **horizontally chained** panels (e.g., two 64×64 panels side by side = 128×64):
+- Increase `shift_register_depth` to total width (128)
+- Keep `address_bit_count` the same
+
+```python
+# Two 64x64 panels chained horizontally
+driver = Hub75Driver(
+    address_bit_count=5,        # Same as single panel
+    shift_register_depth=128,   # 64 + 64 = 128 pixels wide
+    ...
+)
+```
+
+### Troubleshooting
+
+**Wrong colors or ghosting?**
+- Try reducing `data_frequency` (e.g., 20 MHz instead of 25 MHz)
+- Check your wiring — especially ground connections
+
+**Only half the panel lights up or there are rows mixed up?**
+- Ensure `shift_register_depth` matches your panel width or total pixels per cycle
+- Check `address_bit_count`, you may need more address lines
+- Verify your panel's actual scan rate matches your config
+
+**Flickering or dim display?**
+- Ensure adequate 5V power supply (panels can draw 2-4A at full brightness)
+- Try adjusting `data_frequency`
+
+### Pin Configuration
+
+Edit the pin constants to match your wiring:
+
+```python
+BASE_DATA_PIN = 0       # First GPIO for R1,G1,B1,R2,G2,B2 (consecutive)
+BASE_CLOCK_PIN = 6      # First GPIO for CLK,LAT (consecutive)
+OUTPUT_ENABLE_PIN = 8   # GPIO for OE
+BASE_ADDRESS_PIN = 9    # First GPIO for address lines (consecutive)
+```
+
+The driver expects pins in consecutive groups:
+- **Data pins**: 6 consecutive GPIOs (R1, G1, B1, R2, G2, B2)
+- **Clock pins**: 2 consecutive GPIOs (CLK, LAT)
+- **Address pins**: 3-5 consecutive GPIOs depending on scan rate (A, B, C, [D], [E])
 
 ## API Reference
 
@@ -261,6 +426,38 @@ High-level wrapper with MicroPython FrameBuffer compatibility.
 - `ellipse()` - Draw ellipses
 - `text(string, x, y, color)` - Draw text
 - `blit()`, `scroll()` - Buffer operations
+
+## Current Limitations
+
+HUB75 panels vary widely in their internal design. This driver works great with almost all indoor panels, but some panels use non-standard configurations that aren't yet supported.
+
+### Currently Unimplemented Features
+
+**Non-linear addressing** — Some panels don't use standard binary row addressing (where A=bit 0, B=bit 1, etc.). The address lines may be remapped or interleaved in panel-specific ways. See [this ESPHome documentation](https://esphome.io/components/display/hub75/) for examples of different addressing modes.
+
+**Serpentine scan patterns** — Some panels clock data in alternating directions on each row. This requires pixel remapping that isn't currently implemented. The [PxMatrix library](https://github.com/2dom/PxMatrix) documents many of these scan patterns.
+
+**Driver chip initialization** — Some LED driver chips require a special initialization sequence at power-up before they display correctly:
+
+| Chip | Notes |
+|------|-------|
+| FM6124 | Requires init sequence + modified latch timing |
+| FM6126A | 2 config registers, latch during last 3 bits |
+| FM6127 | 3 config registers |
+| MBI5124 | May need configuration for some panels |
+
+If your panel stays dark or displays garbage, it may use one of these chips. Check for markings on the driver ICs on the back of your panel.
+
+### Help Wanted
+
+I'm happy to add support for these features if you need them, but I need your help since I can't test every panel type.
+
+**If your panel doesn't work:**
+1. [Open an issue](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/issues) with your panel specs (size, scan rate, driver chip if visible)
+2. Be willing to test a few iterations with me
+3. Together we can figure out what your panel configuration needs
+
+The HUB75 ecosystem has a lot of variation, and I want this driver to work for as many people as possible, so your help is greatly appreciated!
 
 ## Building from Source
 
@@ -304,4 +501,4 @@ Output files are placed in `pico/`.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE).
