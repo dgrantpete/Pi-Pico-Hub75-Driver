@@ -1,6 +1,6 @@
 # Pi Pico HUB75 Driver
 
-*This is a full rewrite of [my original project from High School](/tree/92458f3).*
+*This is a full rewrite of [my original project from High School](../../tree/8479f60).*
 
 A high-performance MicroPython driver for HUB75 LED matrix panels on the Raspberry Pi Pico.
 
