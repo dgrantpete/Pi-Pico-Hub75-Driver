@@ -2,7 +2,7 @@ import gc
 import time
 import urandom
 import machine
-from hub75.driver import Hub75Driver
+from . import Hub75Driver
 
 def bit_length(n: int) -> int:
     length = 0
