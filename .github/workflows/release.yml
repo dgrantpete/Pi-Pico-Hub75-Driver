@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install ARM toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build release
+        run: python tools/build.py --configuration release --output dist/release
+
+      - name: Build dev
+        run: python tools/build.py --configuration dev --output dist/dev
+
+      - name: Package release
+        run: python tools/package.py ${{ github.ref_name }} --input dist/release --output release-assets --repository ${{ github.repository }}
+
+      - name: Package dev
+        run: python tools/package.py ${{ github.ref_name }} --input dist/dev --output release-assets --repository ${{ github.repository }} --variant dev
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-assets/*
+          generate_release_notes: true
