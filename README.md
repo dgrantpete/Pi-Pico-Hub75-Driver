@@ -166,20 +166,42 @@ driver.flip()
 The driver achieves CPU-free display refresh using the RP2040/RP2350's PIO and DMA peripherals:
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#334155',
+    'primaryTextColor': '#f1f5f9',
+    'primaryBorderColor': '#64748b',
+    'lineColor': '#94a3b8',
+    'secondaryColor': '#1e293b',
+    'tertiaryColor': '#0f172a',
+    'background': '#0f172a',
+    'mainBkg': '#1e293b',
+    'nodeBorder': '#475569',
+    'clusterBkg': '#1e293b',
+    'clusterBorder': '#475569',
+    'titleColor': '#e2e8f0',
+    'edgeLabelBackground': '#1e293b'
+  },
+  'flowchart': {
+    'curve': 'basis',
+    'padding': 20
+  }
+}}%%
+
 flowchart LR
-    subgraph CPU ["CPU (only during frame update)"]
+    subgraph CPU ["CPU (frame update only)"]
         A[Your Code] --> B[load_rgb888]
         B --> C[flip]
     end
 
-    subgraph AUTO ["Runs Continuously Without CPU"]
+    subgraph AUTO ["Runs Without CPU"]
         subgraph DMA ["DMA Chain"]
-            D[Data DMA] --> E[Control Flow DMA]
-            E --> D
+            D[Data DMA] <--> E[Control Flow DMA]
         end
 
         subgraph PIO ["PIO State Machines"]
-            F[Data SM] --> G[Address SM]
+            F[Data State Machine] --> G[Address State Machine]
         end
 
         D --> F
@@ -187,6 +209,11 @@ flowchart LR
 
     C -.-> D
     G --> H[LED Matrix]
+
+    classDef default fill:#334155,stroke:#64748b,color:#f1f5f9
+    classDef external fill:#0d9488,stroke:#14b8a6,color:#f0fdfa
+    
+    class H external
 ```
 
 **After `flip()`, the CPU is completely free.** The DMA chain continuously streams pixel data to the PIO state machines, which handle all timing-critical operations:
