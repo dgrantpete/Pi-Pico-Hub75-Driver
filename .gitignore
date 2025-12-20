@@ -65,3 +65,5 @@ desktop.ini
 src/py/
 
 .claude/
+
+release-assets/
