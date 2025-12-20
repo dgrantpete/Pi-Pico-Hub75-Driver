@@ -120,7 +120,16 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             flattened_name = '.'.join(path_parts)
 
         # Destination path in package.json (where mip installs to on device)
+        # Only include files under lib/ in the mip manifest - mip is for the library,
+        # not demo files like main.py. Users can get the full demo from the zip.
         destination_path = relative_path.as_posix()
+        if destination_path.startswith('lib/'):
+            # Strip 'lib/' prefix since mip already installs to /lib by default
+            destination_path = destination_path[4:]
+        else:
+            # Skip non-library files (like main.py) from mip manifest
+            # They're still included in the zip for manual installation
+            continue
 
         # Source URL for the flattened file
         source_url = f"{base_url}/{flattened_name}"
