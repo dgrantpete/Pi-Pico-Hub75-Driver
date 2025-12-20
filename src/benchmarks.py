@@ -4,6 +4,13 @@ import urandom
 import machine
 from hub75.driver import Hub75Driver
 
+def bit_length(n: int) -> int:
+    length = 0
+    while n > 0:
+        n >>= 1
+        length += 1
+    return length
+
 # ============================================================================
 # Synthetic RGB Data Generators
 # ============================================================================
@@ -304,10 +311,10 @@ def run_benchmark(
 ):
     # Calculate address_bit_count from height
     # height = 2 * (2 ** address_bit_count), so address_bit_count = log2(height / 2)
-    address_bit_count = (height // 2).bit_length() - 1
+    address_bit_count = bit_length(height // 2) - 1
     if 2 ** address_bit_count != height // 2:
         # height/2 is not a power of 2, round up
-        address_bit_count = (height // 2 - 1).bit_length()
+        address_bit_count = bit_length(height // 2 - 1)
 
     # Create Hub75Driver instance
     driver = Hub75Driver(
