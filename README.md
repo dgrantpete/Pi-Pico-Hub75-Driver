@@ -71,7 +71,7 @@ mip.install("https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest/
 
 ### Option 2: Download Zip
 
-1. Download the latest `hub75-vX.X.X.zip` from [Releases](/releases/latest)
+1. Download the latest `hub75-vX.X.X.zip` from [Releases](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest)
 2. Extract and copy contents to your Pico
 
 ### Option 3: Build from Source
@@ -105,7 +105,7 @@ The mip package includes only the library. To run the interactive demo:
 3. Copy to your Pico's root directory
 4. Reboot - the demo runs automatically
 
-Alternatively, download the full zip from [Releases](/releases/latest) which includes `main.py`.
+Alternatively, download the full zip from [Releases](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest) which includes `main.py`.
 
 ## Usage
 
