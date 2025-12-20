@@ -4,22 +4,6 @@ import zipfile
 from pathlib import Path
 import argparse
 
-# FILENAME CONVENTION EXPLANATION:
-#
-# We use '~' as a special delimiter in flattened filenames for two reasons:
-#
-# 1. PATH SEPARATOR: '~' replaces '/' in paths (e.g., lib/hub75/driver.mpy → ~lib~hub75~driver.mpy)
-#    This is unambiguous unlike '-' which commonly appears in folder names.
-#
-# 2. ALPHABETICAL SORTING: '~' (ASCII 126) sorts after all alphanumeric characters.
-#    This pushes individual mip files to the BOTTOM of GitHub's release asset list,
-#    keeping user-facing files (zips, manifests) visible at the top.
-#
-# The format is: ~[variant~]path~segments~filename.ext
-# Examples:
-#   ~lib~hub75~driver.mpy           (release file)
-#   ~dev~lib~hub75~driver.py        (dev file with variant)
-
 root_directory = Path(__file__).parent.parent
 
 parser = argparse.ArgumentParser(description="Package built files into release assets with mip-compatible manifest")
@@ -127,13 +111,13 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         # Add to zip with original structure
         zip_file.write(file, relative_path)
 
-        # Build flattened filename using ~ as separator
-        # Format: ~[variant~]path~segments~filename.ext
+        # Build flattened filename using . as separator
+        # Format: [variant.]path.segments.filename.ext
         path_parts = relative_path.parts
         if args.variant:
-            flattened_name = '~' + args.variant + '~' + '~'.join(path_parts)
+            flattened_name = args.variant + '.' + '.'.join(path_parts)
         else:
-            flattened_name = '~' + '~'.join(path_parts)
+            flattened_name = '.'.join(path_parts)
 
         # Destination path in package.json (where mip installs to on device)
         destination_path = relative_path.as_posix()
