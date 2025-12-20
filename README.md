@@ -31,7 +31,7 @@ The RP2350 is approximately 2x faster than the RP2040 for frame updates.
 
 ## Wiring
 
-Default pin configuration (active low accent on accent editable in `main.py`):
+Default pin configuration (editable in `main.py`):
 
 | HUB75 Pin | GPIO | Description |
 |-----------|------|-------------|
