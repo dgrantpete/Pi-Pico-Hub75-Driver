@@ -8,7 +8,6 @@ import argparse
 root_directory = Path(__file__).parent.parent
 source_directory = root_directory / 'src'
 build_directory = root_directory / 'build'
-pico_directory = root_directory / 'pico'
 
 parser = argparse.ArgumentParser(description="Build script for Pi-Pico-Hub75-Driver")
 
@@ -52,7 +51,21 @@ parser.add_argument(
     help="List of file patterns which will always be copied without compilation"
 )
 
+parser.add_argument(
+    "-o",
+    "--output",
+    type=Path,
+    default="pico",
+    help="Output directory for compiled files (defaults to 'pico')"
+)
+
 args = parser.parse_args()
+
+# Determine output directory
+if args.output is not None:
+    pico_directory = args.output if args.output.is_absolute() else root_directory / args.output
+else:
+    pico_directory = root_directory / 'pico'
 
 if build_directory.exists():
     shutil.rmtree(build_directory)
