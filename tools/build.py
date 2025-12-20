@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser(description="Build script for Pi-Pico-Hub75-Dri
 parser.add_argument(
     "-c",
     "--configuration",
-    choices=["debug", "release"],
+    choices=["dev", "release"],
     default="release",
     help="Build configuration"
 )
@@ -39,10 +39,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--debug-files",
+    "--dev-files",
     nargs='*',
-    default=['*/tests/*', '*/benchmarks.py', '*/unittest/*'],
-    help="List of file patterns which will be ignored in release builds (default: tests and benchmarks)"
+    default=['*/tests/*', '*/unittest/*', '*/benchmarks.py', '*/main.py'],
+    help="List of file patterns which will be ignored in release builds (default: main demo, tests and benchmarks)"
 )
 
 parser.add_argument(
@@ -100,7 +100,7 @@ for file in source_directory.rglob('*.mpy'):
     shutil.move(file, output_path)
 
 for file in source_directory.rglob('*.py'):
-    if args.configuration == 'release' and any(file.match(pattern) for pattern in args.debug_files):
+    if args.configuration == 'release' and any(file.match(pattern) for pattern in args.dev_files):
         print(f"Skipping '{file}' in release build")
         continue
 
@@ -115,8 +115,8 @@ for file in source_directory.rglob('*.py'):
         shutil.copy2(file, output_path)
         continue
 
-    if args.configuration == 'debug':
-        print(f"Copying '{file}' to '{output_path}' without compilation for debug build")
+    if args.configuration == 'dev':
+        print(f"Copying '{file}' to '{output_path}' without compilation for dev build")
         shutil.copy2(file, output_path)
         continue
 
@@ -144,3 +144,4 @@ for file in source_directory.rglob('*.py'):
 
         print(f"Error compiling {file}:")
         print(e.stderr or e.stdout)
+        raise e
