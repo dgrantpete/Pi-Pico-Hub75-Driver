@@ -1,6 +1,6 @@
 # Pi Pico HUB75 Driver
 
-*This is a full rewrite of [my original project from High School](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/tree/8479f60).*
+*This is a full rewrite of [my original project from High School](https://github.com/dgrantpete/pi-pico-hub75-driver/tree/8479f60).*
 
 A high-performance MicroPython driver for HUB75 LED matrix panels on the Raspberry Pi Pico.
 
@@ -58,18 +58,18 @@ Install the library using MicroPython's package manager.
 
 **From your computer (via mpremote):**
 ```bash
-mpremote mip install https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest/download/package.json
+mpremote mip install https://github.com/dgrantpete/pi-pico-hub75-driver/releases/latest/download/package.json
 ```
 
 **On-device (requires network connection):**
 ```python
 import mip
-mip.install("https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest/download/package.json")
+mip.install("https://github.com/dgrantpete/pi-pico-hub75-driver/releases/latest/download/package.json")
 ```
 
 ### Option 2: Download Zip
 
-1. Download the latest `hub75-vX.X.X.zip` from [Releases](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest)
+1. Download the latest `hub75-vX.X.X.zip` from [Releases](https://github.com/dgrantpete/pi-pico-hub75-driver/releases/latest)
 2. Extract and copy contents to your Pico
 
 ### Option 3: Build from Source
@@ -89,7 +89,7 @@ Each release includes two variants:
 
 To install the dev version via mip:
 ```bash
-mpremote mip install https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest/download/package-dev.json
+mpremote mip install https://github.com/dgrantpete/pi-pico-hub75-driver/releases/latest/download/package-dev.json
 ```
 
 ---
@@ -103,7 +103,7 @@ The mip package includes only the library. To run the interactive demo:
 3. Copy to your Pico's root directory
 4. Reboot - the demo runs automatically
 
-Alternatively, download the full zip from [Releases](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/releases/latest) which includes `main.py`.
+Alternatively, download the full zip from [Releases](https://github.com/dgrantpete/pi-pico-hub75-driver/releases/latest) which includes `main.py`.
 
 ## Usage
 
@@ -453,7 +453,7 @@ If your panel stays dark or displays garbage, it may use one of these chips. Che
 I'm happy to add support for these features if you need them, but I need your help since I can't test every panel type.
 
 **If your panel doesn't work:**
-1. [Open an issue](https://github.com/dgrantpete/Pi-Pico-Hub75-Driver/issues) with your panel specs (size, scan rate, driver chip if visible)
+1. [Open an issue](https://github.com/dgrantpete/pi-pico-hub75-driver/issues) with your panel specs (size, scan rate, driver chip if visible)
 2. Be willing to test a few iterations with me
 3. Together we can figure out what your panel configuration needs
 
@@ -485,7 +485,7 @@ Building from source compiles the native C modules and Python files to `pico/`.
 
 ```bash
 # Clone with submodules
-git clone --recursive https://github.com/dgrantpete/Pi-Pico-Hub75-Driver.git
+git clone --recursive https://github.com/dgrantpete/pi-pico-hub75-driver.git
 
 # Or if already cloned, initialize submodules
 git submodule update --init

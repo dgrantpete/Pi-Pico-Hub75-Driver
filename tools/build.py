@@ -9,7 +9,7 @@ root_directory = Path(__file__).parent.parent
 source_directory = root_directory / 'src'
 build_directory = root_directory / 'build'
 
-parser = argparse.ArgumentParser(description="Build script for Pi-Pico-Hub75-Driver")
+parser = argparse.ArgumentParser(description="Build script for pi-pico-hub75-driver")
 
 parser.add_argument(
     "-c",

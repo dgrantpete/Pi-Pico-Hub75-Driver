@@ -33,8 +33,8 @@ BASE_ADDRESS_PIN = 9
 DATA_FREQUENCY = 25_000_000
 
 # Adjustable parameters to control effects
-SPIN_SPEED = 4
-WARP_AMOUNT = 14
+SPIN_SPEED = 7
+WARP_AMOUNT = 12
 
 # GLOBAL STATE
 
@@ -70,7 +70,8 @@ def _init():
         base_data_pin=Pin(BASE_DATA_PIN),
         base_clock_pin=Pin(BASE_CLOCK_PIN),
         output_enable_pin=Pin(OUTPUT_ENABLE_PIN),
-        data_frequency=DATA_FREQUENCY
+        data_frequency=DATA_FREQUENCY,
+        address_frequency=DATA_FREQUENCY // 4
     )
     print("Ready!")
 
@@ -115,6 +116,40 @@ def _init_fire():
         _fire_buffer[(HEIGHT - 1) * WIDTH + x] = 36
 
 @micropython.native
+def _render_effect(mode, rgb_buffer, fire_buffer, frame_time):
+    """Render a single frame of the given effect."""
+    current_spin_speed = SPIN_SPEED
+    current_warp_amount = WARP_AMOUNT
+
+    if mode == 'balatro':
+        angle_table, radius_table = _spiral_tables
+        render_balatro_frame(
+            angle_table,
+            radius_table,
+            rgb_buffer,
+            WIDTH,
+            HEIGHT,
+            frame_time,
+            current_spin_speed,
+            current_warp_amount
+        )
+    elif mode == 'plasma':
+        render_plasma_frame(rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
+    elif mode == 'fire':
+        render_fire_frame(fire_buffer, rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
+    elif mode == 'spiral':
+        angle_table, radius_table = _spiral_tables
+        render_spiral_frame(
+            angle_table,
+            radius_table,
+            rgb_buffer,
+            WIDTH,
+            HEIGHT,
+            frame_time & 0xFF,
+            current_spin_speed
+        )
+
+@micropython.native
 def _effect_loop():
     global _running
 
@@ -125,41 +160,28 @@ def _effect_loop():
     rgb_buffer = _rgb_buffer
     fire_buffer = _fire_buffer
     frame_time = 0
+    cycle_index = 0
+    cycle_frame_count = 0
 
     while _running:
         mode = _effect_mode
-        current_spin_speed = SPIN_SPEED
-        current_warp_amount = WARP_AMOUNT
 
-        if mode == 'balatro':
-            assert _spiral_tables is not None
-            angle_table, radius_table = _spiral_tables
-            render_balatro_frame(
-                angle_table,
-                radius_table,
-                rgb_buffer,
-                WIDTH,
-                HEIGHT,
-                frame_time,
-                current_spin_speed,
-                current_warp_amount
-            )
-        elif mode == 'plasma':
-            render_plasma_frame(rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
-        elif mode == 'fire':
-            render_fire_frame(fire_buffer, rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
-        elif mode == 'spiral':
-            assert _spiral_tables is not None
-            angle_table, radius_table = _spiral_tables
-            render_spiral_frame(
-                angle_table,
-                radius_table,
-                rgb_buffer,
-                WIDTH,
-                HEIGHT,
-                frame_time & 0xFF,
-                current_spin_speed
-            )
+        # Handle cycling mode
+        if mode == 'cycle':
+            # Switch effect every CYCLE_INTERVAL_MS (approx, based on frame count)
+            # Assuming ~60fps, 10 seconds = ~600 frames
+            if cycle_frame_count >= 600:
+                cycle_frame_count = 0
+                cycle_index = (cycle_index + 1) % len(_cycle_effects)
+                # Re-init fire buffer when switching to fire
+                if _cycle_effects[cycle_index] == 'fire':
+                    _init_fire()
+            current_effect = _cycle_effects[cycle_index]
+            cycle_frame_count += 1
+        else:
+            current_effect = mode
+
+        _render_effect(current_effect, rgb_buffer, fire_buffer, frame_time)
 
         driver.load_rgb888(rgb_buffer)
         driver.flip()
@@ -172,7 +194,8 @@ def _start_effect(mode):
     global _running, _effect_mode
 
     if _running:
-        stop()
+        _running = False
+        sleep_ms(100)
 
     _ensure_buffers()
     if mode in ('balatro', 'spiral'):
@@ -212,6 +235,26 @@ def stop():
     sleep_ms(100)
     print("Stopped.")
 
+# Cycle settings
+CYCLE_INTERVAL_MS = 10000
+_cycle_effects = ['balatro', 'plasma', 'fire', 'spiral']
+
+def cycle():
+    global _running, _effect_mode
+    _init()
+
+    if _running:
+        stop()
+
+    _ensure_buffers()
+    _ensure_spiral_tables()
+    _init_fire()
+
+    _effect_mode = 'cycle'
+    _running = True
+    _thread.start_new_thread(_effect_loop, ())
+    print("Cycling effects every 10 seconds. Call stop() to end.")
+
 def print_pinout():
     address_bit_count = bit_length(HEIGHT // 2 - 1)
 
@@ -234,7 +277,7 @@ def print_pinout():
     print(pinout)
 
 print("=== HUB75 Interactive Demo ===")
-print("Commands: print_pinout(), balatro(), plasma(), fire(), spiral(), stop()")
+print("Commands: print_pinout(), cycle(), balatro(), plasma(), fire(), spiral(), stop()")
 
-balatro()
+cycle()
 print_pinout()
