@@ -23,34 +23,5 @@
 				}
 			}
 		]
-	},
-	"settings": {
-		"micropico.syncFolder": "pico",
-		"micropico.openOnStart": true,
-		"micropico.statusbarButtons": [
-			"status",
-			"run",
-			"softreset",
-			"togglepicowfs"
-		],
-		"micropico.pyIgnore": [
-			"**/.picowgo",
-			"**/.micropico",
-			"**/.vscode",
-			"**/.gitignore",
-			"**/.git",
-			"**/.DS_Store",
-			"**/project.pico-go",
-			"**/env",
-			"**/venv",
-			"**/.venv",
-			"**/.idea",
-			"**/natmods"
-		]
-	},
-	"extensions": {
-		"recommendations": [
-			"paulober.pico-w-go"
-		]
 	}
 }

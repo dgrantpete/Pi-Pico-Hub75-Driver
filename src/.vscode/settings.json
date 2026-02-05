@@ -3,12 +3,15 @@
     "python.analysis.diagnosticSeverityOverrides": {
         "reportMissingModuleSource": "none"
     },
+    "python.analysis.ignore": [
+        "**/typings/**"
+    ],
     "python.terminal.activateEnvironment": false,
     "python.analysis.typeshedPaths": [
-        "~/.micropico-stubs/included"
+        "${workspaceFolder}/typings"
     ],
     "python.analysis.extraPaths": [
-        "~/.micropico-stubs/included",
+        "${workspaceFolder}/typings",
         "${workspaceFolder}/lib"
     ]
 }
