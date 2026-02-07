@@ -14,13 +14,15 @@ void pack_pixel_pair(
 void load_rgb888_kernel(
     const uint8_t *input_data,
     size_t pixel_count,
-    uint8_t *output_data
+    uint8_t *output_data,
+    const uint8_t *gamma_lut
 );
 
 void load_rgb565_kernel(
     const uint8_t *input_data,
     size_t pixel_count,
-    uint8_t *output_data
+    uint8_t *output_data,
+    const uint8_t *gamma_lut
 );
 
 void clear_buffer(uint8_t *data, size_t size);

@@ -19,18 +19,21 @@ static mp_obj_t clear(mp_obj_t buffer_obj) {
     return mp_const_none;
 }
 
-static mp_obj_t load_rgb888(mp_obj_t input_obj, mp_obj_t output_obj) {
+static mp_obj_t load_rgb888(mp_obj_t input_obj, mp_obj_t output_obj, mp_obj_t gamma_lut_obj) {
     mp_buffer_info_t input_buffer;
     mp_buffer_info_t output_buffer;
+    mp_buffer_info_t gamma_lut_buffer;
 
     mp_get_buffer_raise(input_obj, &input_buffer, MP_BUFFER_READ);
-
     mp_get_buffer_raise(output_obj, &output_buffer, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(gamma_lut_obj, &gamma_lut_buffer, MP_BUFFER_READ);
 
     const uint8_t *input_data = (const uint8_t *)input_buffer.buf;
 
     uint8_t *output_data = (uint8_t *)output_buffer.buf;
     size_t output_size = output_buffer.len;
+
+    const uint8_t *gamma_lut = (const uint8_t *)gamma_lut_buffer.buf;
 
     size_t pixel_count = (output_size / COLOR_BIT_DEPTH) * 2;
 
@@ -40,23 +43,30 @@ static mp_obj_t load_rgb888(mp_obj_t input_obj, mp_obj_t output_obj) {
         mp_raise_ValueError(MP_ERROR_TEXT("Input buffer does not match expected size for RGB888 data"));
     }
 
-    load_rgb888_kernel(input_data, pixel_count, output_data);
+    if (gamma_lut_buffer.len != (1 << COLOR_BIT_DEPTH)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Gamma LUT size does not match expected size for color bit depth"));
+    }
+
+    load_rgb888_kernel(input_data, pixel_count, output_data, gamma_lut);
 
     return mp_const_none;
 }
 
-static mp_obj_t load_rgb565(mp_obj_t input_obj, mp_obj_t output_obj) {
+static mp_obj_t load_rgb565(mp_obj_t input_obj, mp_obj_t output_obj, mp_obj_t gamma_lut_obj) {
     mp_buffer_info_t input_buffer;
     mp_buffer_info_t output_buffer;
+    mp_buffer_info_t gamma_lut_buffer;
 
     mp_get_buffer_raise(input_obj, &input_buffer, MP_BUFFER_READ);
-
     mp_get_buffer_raise(output_obj, &output_buffer, MP_BUFFER_WRITE);
+    mp_get_buffer_raise(gamma_lut_obj, &gamma_lut_buffer, MP_BUFFER_READ);
 
     const uint8_t *input_data = (const uint8_t *)input_buffer.buf;
 
     uint8_t *output_data = (uint8_t *)output_buffer.buf;
     size_t output_size = output_buffer.len;
+
+    const uint8_t *gamma_lut = (const uint8_t *)gamma_lut_buffer.buf;
 
     size_t pixel_count = (output_size / COLOR_BIT_DEPTH) * 2;
 
@@ -66,7 +76,11 @@ static mp_obj_t load_rgb565(mp_obj_t input_obj, mp_obj_t output_obj) {
         mp_raise_ValueError(MP_ERROR_TEXT("Input buffer does not match expected size for RGB565 data"));
     }
 
-    load_rgb565_kernel(input_data, pixel_count, output_data);
+    if (gamma_lut_buffer.len != (1 << COLOR_BIT_DEPTH)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Gamma LUT size does not match expected size for color bit depth"));
+    }
+
+    load_rgb565_kernel(input_data, pixel_count, output_data, gamma_lut);
 
     return mp_const_none;
 }
@@ -112,8 +126,8 @@ static mp_obj_t hsv_to_rgb(mp_obj_t h_obj, mp_obj_t s_obj, mp_obj_t v_obj) {
     return mp_obj_new_tuple(3, items);
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_2(load_rgb888_obj, load_rgb888);
-static MP_DEFINE_CONST_FUN_OBJ_2(load_rgb565_obj, load_rgb565);
+static MP_DEFINE_CONST_FUN_OBJ_3(load_rgb888_obj, load_rgb888);
+static MP_DEFINE_CONST_FUN_OBJ_3(load_rgb565_obj, load_rgb565);
 static MP_DEFINE_CONST_FUN_OBJ_1(clear_obj, clear);
 static MP_DEFINE_CONST_FUN_OBJ_3(pack_hsv_to_rgb565_obj, pack_hsv_to_rgb565);
 static MP_DEFINE_CONST_FUN_OBJ_3(pack_hsv_to_rgb888_obj, pack_hsv_to_rgb888);
