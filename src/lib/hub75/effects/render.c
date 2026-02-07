@@ -26,7 +26,7 @@ static inline void hsv_to_rgb_kernel(uint8_t hue, uint8_t saturation, uint8_t va
     }
 }
 
-// Pre-computed sine table: (sin(i * 2π / 256) + 1) * 127.5
+// Pre-computed sine table: (sin(i * 2*pi / 256) + 1) * 127.5
 static const uint8_t SIN_TABLE[256] = {
     128, 131, 134, 137, 140, 143, 146, 149, 152, 155, 158, 162, 165, 167, 170, 173,
     176, 179, 182, 185, 188, 190, 193, 196, 198, 201, 203, 206, 208, 211, 213, 215,
