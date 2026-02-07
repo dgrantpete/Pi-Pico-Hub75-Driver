@@ -15,7 +15,7 @@ parser.add_argument(
     "-c",
     "--configuration",
     choices=["dev", "release"],
-    default="release",
+    default="dev",
     help="Build configuration"
 )
 
@@ -38,17 +38,24 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--ignore-files",
+    nargs='*',
+    default=['typings/**'],
+    help="Glob patterns matched against relative paths from src/ to always ignore"
+)
+
+parser.add_argument(
     "--dev-files",
     nargs='*',
-    default=['*/tests/*', '*/unittest/*', '*/benchmarks.py', '*/main.py'],
-    help="List of file patterns which will be ignored in release builds (default: main demo, tests and benchmarks)"
+    default=['**/tests/**', '**/unittest/**', '**/benchmarks.py'],
+    help="Glob patterns matched against relative paths from src/ to ignore in release builds"
 )
 
 parser.add_argument(
     "--copy-only-files",
     nargs='*',
-    default=['*/main.py'],
-    help="List of file patterns which will always be copied without compilation"
+    default=['**/main.py'],
+    help="Glob patterns matched against relative paths from src/ to always copy without compilation"
 )
 
 parser.add_argument(
@@ -106,24 +113,30 @@ for file in source_directory.rglob('Makefile'):
 for file in source_directory.rglob('*.mpy'):
     relative_path = file.relative_to(source_directory)
 
+    if any(relative_path.full_match(pattern) for pattern in args.ignore_files):
+        continue
+
     output_path = pico_directory / relative_path
-    
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     shutil.move(file, output_path)
 
 for file in source_directory.rglob('*.py'):
-    if args.configuration == 'release' and any(file.match(pattern) for pattern in args.dev_files):
+    relative_path = file.relative_to(source_directory)
+
+    if any(relative_path.full_match(pattern) for pattern in args.ignore_files):
+        continue
+
+    if args.configuration == 'release' and any(relative_path.full_match(pattern) for pattern in args.dev_files):
         print(f"Skipping '{file}' in release build")
         continue
 
-    relative_path = file.relative_to(source_directory)
-
     output_path = pico_directory / relative_path
-    
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    if any(file.match(pattern) for pattern in args.copy_only_files):
+
+    if any(relative_path.full_match(pattern) for pattern in args.copy_only_files):
         print(f"Copying '{file}' to '{output_path}', file marked as copy-only")
         shutil.copy2(file, output_path)
         continue
