@@ -118,7 +118,7 @@ class Hub75Driver:
         self._address_state_machine = rp2.StateMachine(
             address_state_machine_id,
             address_program,
-            out_base=base_address_pin,
+            set_base=base_address_pin,
             sideset_base=output_enable_pin
         )
 
@@ -555,9 +555,14 @@ class Hub75Driver:
         OE_ASSERTED = const(0b0)
         OE_DEASSERTED = const(0b1)
 
+        # The middle bit (0b010) is kept low since its the enable for the shift register
+        ADDRESS_CLOCK_ASSERTED = const(0b100)
+        ADDRESS_DATA_ASSERTED = const(0b001)
+        ADDRESS_BOTH_DEASSERTED = const(0b000)
+
         @rp2.asm_pio(
             sideset_init=rp2.PIO.OUT_HIGH,
-            out_init=[rp2.PIO.OUT_LOW] * address_bit_count,
+            set_init=[rp2.PIO.OUT_LOW] * address_bit_count,
             out_shiftdir=rp2.PIO.SHIFT_RIGHT,
             autopull=True,
             pull_thresh=32
@@ -574,11 +579,16 @@ class Hub75Driver:
             # After this, ISR contains the 'off' delay from the first word, OSR contains the 'on' delay from the second word (autopulled)
             out(isr, 32)                           .side(OE_DEASSERTED)
             set(x, (0b1 << address_bit_count) - 1) .side(OE_DEASSERTED)
+
+            # New code to experiment for jkorte-dev
+            # (Max delay cycles of 15 hardcoded temporarily so display doesn't miss edges)
+            # Clock in first '1' bit
+            set(pins, ADDRESS_DATA_ASSERTED).side(OE_DEASSERTED) [15]
+            set(pins, ADDRESS_DATA_ASSERTED | ADDRESS_CLOCK_ASSERTED).side(OE_DEASSERTED) [15]
+            set(pins, ADDRESS_BOTH_DEASSERTED).side(OE_DEASSERTED) [15]
+
             label("write_address")
             irq(_LATCH_SAFE_IRQ)                   .side(OE_DEASSERTED)
-            # We invert the bits here so it counts up from 0 to the highest address
-            # (even though the x register itself counts down from the highest address to 0)
-            mov(pins, invert(x))                   .side(OE_DEASSERTED)
             wait(1, irq, _LATCH_COMPLETE_IRQ)      .side(OE_DEASSERTED)
             mov(y, isr)                            .side(OE_DEASSERTED)
             label("off_delay_before_enable")
@@ -589,6 +599,11 @@ class Hub75Driver:
             mov(y, isr)                            .side(OE_DEASSERTED)
             label("off_delay_after_disable")
             jmp(y_dec, "off_delay_after_disable")  .side(OE_DEASSERTED)
+
+            # Same experiment as above, we send another clock pulse to move bit through the shift register
+            set(pins, ADDRESS_CLOCK_ASSERTED).side(OE_DEASSERTED) [15]
+            set(pins, ADDRESS_BOTH_DEASSERTED).side(OE_DEASSERTED) [15]
+
             wrap()
 
         CLOCK_ASSERTED = const(0b01)
