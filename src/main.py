@@ -30,7 +30,7 @@ BASE_ADDRESS_PIN = 9
 # Speed of the data sent to the panel
 # Different panels have different maximum speeds, this value can be adjusted as needed
 # Artifacting will occur if the speed is too high
-DATA_FREQUENCY = 25_000_000
+DATA_FREQUENCY = 20_000_000
 
 # Adjustable parameters to control effects
 SPIN_SPEED = 7

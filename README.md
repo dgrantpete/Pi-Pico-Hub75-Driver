@@ -480,7 +480,7 @@ Hub75Driver(
 
 ### Hub75Display
 
-High-level wrapper with MicroPython FrameBuffer compatibility.
+FrameBuffer subclass for drawing to HUB75 panels. Compatible with MicroPython libraries that expect a FrameBuffer device (e.g. writer.py, CWriter).
 
 - `show()` - Load buffer and flip
 - `fill(color)` - Fill with RGB565 color
