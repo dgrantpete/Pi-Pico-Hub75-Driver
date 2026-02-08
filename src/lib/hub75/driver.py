@@ -562,7 +562,7 @@ class Hub75Driver:
 
         @rp2.asm_pio(
             sideset_init=rp2.PIO.OUT_HIGH,
-            set_init=[rp2.PIO.OUT_LOW] * address_bit_count,
+            set_init=[rp2.PIO.OUT_LOW] * 3,
             out_shiftdir=rp2.PIO.SHIFT_RIGHT,
             autopull=True,
             pull_thresh=32
