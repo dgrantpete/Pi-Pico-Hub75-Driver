@@ -30,7 +30,7 @@ BASE_ADDRESS_PIN = 9
 # Speed of the data sent to the panel
 # Different panels have different maximum speeds, this value can be adjusted as needed
 # Artifacting will occur if the speed is too high
-DATA_FREQUENCY = 25_000_000
+DATA_FREQUENCY = 20_000_000
 
 # Adjustable parameters to control effects
 SPIN_SPEED = 7
@@ -70,8 +70,7 @@ def _init():
         base_data_pin=Pin(BASE_DATA_PIN),
         base_clock_pin=Pin(BASE_CLOCK_PIN),
         output_enable_pin=Pin(OUTPUT_ENABLE_PIN),
-        data_frequency=DATA_FREQUENCY,
-        address_frequency=DATA_FREQUENCY // 4
+        data_frequency=DATA_FREQUENCY
     )
     print("Ready!")
 
@@ -122,7 +121,7 @@ def _render_effect(mode, rgb_buffer, fire_buffer, frame_time):
     current_warp_amount = WARP_AMOUNT
 
     if mode == 'balatro':
-        angle_table, radius_table = _spiral_tables
+        angle_table, radius_table = _spiral_tables # type: ignore
         render_balatro_frame(
             angle_table,
             radius_table,
@@ -138,7 +137,7 @@ def _render_effect(mode, rgb_buffer, fire_buffer, frame_time):
     elif mode == 'fire':
         render_fire_frame(fire_buffer, rgb_buffer, WIDTH, HEIGHT, frame_time & 0xFF)
     elif mode == 'spiral':
-        angle_table, radius_table = _spiral_tables
+        angle_table, radius_table = _spiral_tables # type: ignore
         render_spiral_frame(
             angle_table,
             radius_table,
@@ -235,6 +234,50 @@ def stop():
     sleep_ms(100)
     print("Stopped.")
 
+def brightness(value: float | None = None):
+    """Get or set display brightness (0.0 - 1.0)."""
+    if driver is None:
+        print("Driver not initialized. Start an effect first.")
+        return
+    if value is None:
+        print(f"Brightness: {driver.brightness}")
+    else:
+        actual = driver.set_brightness(value)
+        print(f"Brightness set to {actual}")
+
+def blanking_time(nanoseconds: int | None = None):
+    """Get or set blanking time in nanoseconds."""
+    if driver is None:
+        print("Driver not initialized. Start an effect first.")
+        return
+    if nanoseconds is None:
+        print(f"Blanking time: {driver.blanking_time} ns")
+    else:
+        actual = driver.set_blanking_time(nanoseconds)
+        print(f"Blanking time set to {actual} ns")
+
+def gamma(value: float | None = None):
+    """Get or set display gamma correction (default 2.2)."""
+    if driver is None:
+        print("Driver not initialized. Start an effect first.")
+        return
+    if value is None:
+        print(f"Gamma: {driver.gamma}")
+    else:
+        actual = driver.set_gamma(value)
+        print(f"Gamma set to {actual}")
+
+def refresh_rate(target_refresh_rate: float | None = None):
+    """Get current refresh rate, or set a target refresh rate in Hz."""
+    if driver is None:
+        print("Driver not initialized. Start an effect first.")
+        return
+    if target_refresh_rate is None:
+        print(f"Refresh rate: {driver.refresh_rate:.1f} Hz")
+    else:
+        actual = driver.set_target_refresh_rate(target_refresh_rate)
+        print(f"Refresh rate set to {actual:.1f} Hz")
+
 # Cycle settings
 CYCLE_INTERVAL_MS = 10000
 _cycle_effects = ['balatro', 'plasma', 'fire', 'spiral']
@@ -277,7 +320,7 @@ def print_pinout():
     print(pinout)
 
 print("=== HUB75 Interactive Demo ===")
-print("Commands: print_pinout(), cycle(), balatro(), plasma(), fire(), spiral(), stop()")
+print("Commands: print_pinout(), cycle(), balatro(), plasma(), fire(), spiral(), stop(), brightness(0.0-1.0), blanking_time(ns), gamma(n), refresh_rate(hz)")
 
 cycle()
 print_pinout()

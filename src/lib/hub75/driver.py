@@ -2,21 +2,16 @@ import micropython
 import rp2
 import machine
 import uctypes
+from . import native
 from array import array
 from .constants import COLOR_BIT_DEPTH
-from .native import clear, load_rgb888, load_rgb565
 from micropython import const
 import _thread
 import re
 
-DEFAULT_DATA_FREQUENCY = 25_000_000
+from pio_types import *
 
-# Increasing this value non-linearly increases the duty cycle but decreases the refresh rate
-# This default value is a good balance between brightness and refresh rate
-DEFAULT_ADDRESS_FREQUENCY_DIVIDER = 16
-
-_PIO_PROGRAM_DATA_INDEX = const(0)
-_PIO_PROGRAM_BUFFER_SIZE = const(32)
+DEFAULT_DATA_FREQUENCY = 20_000_000
 
 _DEFAULT_PIO_INDEX = const(0)
 
@@ -43,6 +38,8 @@ _SM_CLKDIV_OFFSET = const(0x0C8)  # SM0_CLKDIV offset from PIO base
 _SM_CLKDIV_STRIDE = const(0x18)   # Bytes between each SM's registers
 
 _PIO_DEBUG_FLAGS_OFFSET = const(0x008)
+_PIO_IRQ_OFFSET = const(0x030)
+_PIO_IRQ_FORCE_OFFSET = const(0x034)
 
 _PIO_TX_FLAG_BASE_INDEX = const(24)
 
@@ -61,14 +58,25 @@ class Hub75Driver:
             base_data_pin: machine.Pin,
             base_clock_pin: machine.Pin,
             data_frequency: int = DEFAULT_DATA_FREQUENCY,
-            address_frequency: int | None = None
+            brightness: float = 1.0,
+            blanking_time: int = 0,
+            gamma: float = 2.2,
+            target_refresh_rate: float = 120.0
         ):
-
-        if address_frequency is None:
-            address_frequency = data_frequency // DEFAULT_ADDRESS_FREQUENCY_DIVIDER
-
         self._address_bit_count = address_bit_count
         self._shift_register_depth = shift_register_depth
+        self._data_frequency = data_frequency
+        self._system_frequency = machine.freq()
+
+        self._timing_buffer = array('I', [0] * (COLOR_BIT_DEPTH * 2))
+        self._timing_buffer_pointer = array('I', [uctypes.addressof(self._timing_buffer)])
+
+        self._gamma = max(0.0, gamma)
+        self._gamma_lut = self.__class__._create_gamma_lut(self._gamma)
+        self._brightness = max(0.0, min(1.0, brightness))
+        self._blanking_time = max(0, blanking_time)
+
+        self.set_target_refresh_rate(target_refresh_rate)
 
         buffer_size = self.row_address_count * shift_register_depth * COLOR_BIT_DEPTH
 
@@ -80,15 +88,7 @@ class Hub75Driver:
         self._active_buffer_index = 0
 
         (address_program, data_program) = self.__class__._create_pio_programs(
-            address_bit_count,
-            shift_register_depth
-        )
-
-        address_program_size = self.__class__._get_pio_program_size(address_program)
-        data_program_size = self.__class__._get_pio_program_size(data_program)
-
-        padding_program = self.__class__._create_padding_pio_program(
-            _PIO_PROGRAM_BUFFER_SIZE - address_program_size - data_program_size
+            address_bit_count
         )
 
         self._pio = pio if pio is not None else rp2.PIO(_DEFAULT_PIO_INDEX)
@@ -104,15 +104,6 @@ class Hub75Driver:
         # Clear ALL programs in this PIO so we're starting from a blank slate
         self._pio.remove_program()
 
-        # PIO programs are loaded from back to front
-        # We need address program to be at offset 0 since we use dynamic jumps
-        # To force this, we load a padding program first with a calculated size
-        # Once this is done, we load 'data', and finally 'address' so it sits at the front
-
-        self._pio.add_program(padding_program)
-        self._pio.add_program(data_program)
-        self._pio.add_program(address_program)
-
         self._data_state_machine = rp2.StateMachine(
             data_state_machine_id,
             data_program,
@@ -121,27 +112,30 @@ class Hub75Driver:
             freq=data_frequency * 2 # times 2 since each clock cycle has a rising and falling edge
         )
 
+        # Seed data state machine with number of bits to clock out for each address
+        self._data_state_machine.put(shift_register_depth - 1)
+
         self._address_state_machine = rp2.StateMachine(
             address_state_machine_id,
             address_program,
             out_base=base_address_pin,
-            sideset_base=output_enable_pin,
-            freq=address_frequency
+            sideset_base=output_enable_pin
         )
 
         self._active_buffer_address_pointer = array('I', [uctypes.addressof(self._active_buffer)])
 
         self._data_state_machine_offset = _DATA_STATE_MACHINE_OFFSET
 
-        self._data_dma = rp2.DMA()
-        self._control_flow_dma = rp2.DMA()
+        # Data path DMAs: pixel buffer -> data state machine
+        self._data_buffer_dma = rp2.DMA()
+        self._data_control_dma = rp2.DMA()
 
-        self._data_dma.config(
-            ctrl=self._data_dma.pack_ctrl(
+        self._data_buffer_dma.config(
+            ctrl=self._data_buffer_dma.pack_ctrl(
                 size=_DMA_32BIT_TRANSFER_SIZE,
                 inc_read=True,
                 inc_write=False,
-                chain_to=self._control_flow_dma.channel, # type: ignore
+                chain_to=self._data_control_dma.channel, # type: ignore
                 treq_sel=self.__class__._get_pio_data_request_index(self._pio_block_id, self._data_state_machine_offset),
                 irq_quiet=True
             ),
@@ -150,8 +144,8 @@ class Hub75Driver:
             count=len(self._active_buffer) // 4 # divide by 4 since '_active_buffer' is in bytes with 32-bit transfers
         )
 
-        self._control_flow_dma.config(
-            ctrl=self._control_flow_dma.pack_ctrl(
+        self._data_control_dma.config(
+            ctrl=self._data_control_dma.pack_ctrl(
                 size=_DMA_32BIT_TRANSFER_SIZE,
                 inc_read=False,
                 inc_write=False,
@@ -159,7 +153,38 @@ class Hub75Driver:
             ),
             count=1,
             read=self._active_buffer_address_pointer,
-            write=self._data_dma.registers[_DMA_READ_ADDRESS_TRIGGER_INDEX:_DMA_READ_ADDRESS_TRIGGER_INDEX+1], # type: ignore
+            write=self._data_buffer_dma.registers[_DMA_READ_ADDRESS_TRIGGER_INDEX:_DMA_READ_ADDRESS_TRIGGER_INDEX+1], # type: ignore
+            trigger=True
+        )
+
+        # Address path DMAs: timing buffer -> address state machine
+        self._address_timing_dma = rp2.DMA()
+        self._address_control_dma = rp2.DMA()
+
+        self._address_timing_dma.config(
+            ctrl=self._address_timing_dma.pack_ctrl(
+                size=_DMA_32BIT_TRANSFER_SIZE,
+                inc_read=True,
+                inc_write=False,
+                chain_to=self._address_control_dma.channel, # type: ignore
+                treq_sel=self.__class__._get_pio_data_request_index(self._pio_block_id, _ADDRESS_STATE_MACHINE_OFFSET),
+                irq_quiet=True
+            ),
+            write=self._address_state_machine,
+            read=self._timing_buffer,
+            count=COLOR_BIT_DEPTH * 2
+        )
+
+        self._address_control_dma.config(
+            ctrl=self._address_control_dma.pack_ctrl(
+                size=_DMA_32BIT_TRANSFER_SIZE,
+                inc_read=False,
+                inc_write=False,
+                treq_sel=_DMA_UNPACED_TRANSFER_REQUEST
+            ),
+            count=1,
+            read=self._timing_buffer_pointer,
+            write=self._address_timing_dma.registers[_DMA_READ_ADDRESS_TRIGGER_INDEX:_DMA_READ_ADDRESS_TRIGGER_INDEX+1], # type: ignore
             trigger=True
         )
 
@@ -174,17 +199,17 @@ class Hub75Driver:
         def on_data_dma_complete(_):
             shutdown_lock.release()
 
-        self._data_dma.irq(handler=on_data_dma_complete, hard=True)
+        self._data_buffer_dma.irq(handler=on_data_dma_complete, hard=True)
 
         # Cut off the ping-ponged DMAs to stop the loop
         # Graceful stop by cutting chain rather than forcefully stopping means
         # the DMAs are in a clean state when they are done
-        self._data_dma.config(
-            ctrl=self._data_dma.pack_ctrl(
+        self._data_buffer_dma.config(
+            ctrl=self._data_buffer_dma.pack_ctrl(
                 size=_DMA_32BIT_TRANSFER_SIZE,
                 inc_read=True,
                 inc_write=False,
-                chain_to=self._data_dma.channel, # type: ignore
+                chain_to=self._data_buffer_dma.channel, # type: ignore
                 treq_sel=self.__class__._get_pio_data_request_index(self._pio_block_id, self._data_state_machine_offset),
                 irq_quiet=False # Atomically enable IRQ to fire only when chain broken
             ),
@@ -196,38 +221,53 @@ class Hub75Driver:
         # Wait until we're sure the DMA has finished (and is no longer triggering the data DMA)
         shutdown_lock.acquire()
 
-        self._data_dma.close()
-        self._control_flow_dma.close()
+        # Close control DMAs first so they can't re-trigger buffer/timing DMAs
+        self._data_control_dma.close()
+        self._address_control_dma.close()
+        self._data_buffer_dma.close()
+        self._address_timing_dma.close()
 
         pio_base = _PIO_BASE_ADDRESSES[self._pio_block_id]
+
+        # Force-set both handshake IRQs to unblock any SM stuck on a wait instruction.
+        # After DMAs are closed, the address SM may stall on 'out' (empty FIFO),
+        # which prevents it from ever firing _LATCH_SAFE_IRQ. If the data SM is
+        # blocked on 'wait(1, irq, _LATCH_SAFE_IRQ)', it will never reach an 'out'
+        # instruction and the TX stall flag will never be set.
+        machine.mem32[pio_base + _PIO_IRQ_FORCE_OFFSET] = (1 << _LATCH_SAFE_IRQ) | (1 << _LATCH_COMPLETE_IRQ)
 
         tx_flag_index = _PIO_TX_FLAG_BASE_INDEX + self._data_state_machine_offset
         tx_bit_mask = 1 << tx_flag_index
 
-        # Clear any stalled TX flags to ensure we know state machines are freshly stalled
+        # Clear stall flag so we detect a fresh stall
         machine.mem32[pio_base + _PIO_DEBUG_FLAGS_OFFSET] = tx_bit_mask
 
         while (machine.mem32[pio_base + _PIO_DEBUG_FLAGS_OFFSET] & tx_bit_mask) == 0:
-            # Wait until state machine is stalled (has no more data to pull from DMA)
+            # Wait until data state machine is stalled (no more data to pull from DMA)
             machine.idle()
-            
-        # Deactivate the state machines and unload their programs from the PIO block
+
+        # Deactivate the state machines
         self._data_state_machine.active(0)
         self._address_state_machine.active(0)
+
+        # Clear any leftover handshake IRQ flags so the next init starts with clean state.
+        # The force-set above (and normal SM execution) can leave flags set, which would
+        # cause the data SM to skip its first wait on the next init — offsetting rows by 1.
+        machine.mem32[pio_base + _PIO_IRQ_OFFSET] = (1 << _LATCH_SAFE_IRQ) | (1 << _LATCH_COMPLETE_IRQ)
 
         self._pio.remove_program()
 
     @micropython.native
     def load_rgb888(self, rgb888_data: memoryview | bytes | bytearray):
-        load_rgb888(rgb888_data, self._inactive_buffer)
+        native.load_rgb888(rgb888_data, self._inactive_buffer, self._gamma_lut)
 
     @micropython.native
     def load_rgb565(self, rgb565_data: memoryview | bytes | bytearray):
-        load_rgb565(rgb565_data, self._inactive_buffer)
+        native.load_rgb565(rgb565_data, self._inactive_buffer, self._gamma_lut)
 
     @micropython.native
     def clear(self):
-        clear(self._inactive_buffer)
+        native.clear(self._inactive_buffer)
 
     @micropython.native
     def flip(self):
@@ -235,23 +275,17 @@ class Hub75Driver:
         self._active_buffer_address_pointer[0] = uctypes.addressof(self._active_buffer)
 
     @micropython.native
-    def set_frequency(self, data_frequency=None, address_frequency=None):
-        system_frequency = machine.freq()
+    def set_frequency(self, data_frequency: int) -> int:
+        self._data_frequency = data_frequency
+        system_frequency = self._system_frequency
         pio_base = _PIO_BASE_ADDRESSES[self._pio_block_id]
 
-        if data_frequency is not None:
-            clkdiv_address = pio_base + _SM_CLKDIV_OFFSET + (_DATA_STATE_MACHINE_OFFSET * _SM_CLKDIV_STRIDE)
-            divider = system_frequency / (data_frequency * 2)
-            integer_part = int(divider)
-            fractional_part = int((divider - integer_part) * 256)
-            machine.mem32[clkdiv_address] = (integer_part << 16) | (fractional_part << 8)
-
-        if address_frequency is not None:
-            clkdiv_address = pio_base + _SM_CLKDIV_OFFSET + (_ADDRESS_STATE_MACHINE_OFFSET * _SM_CLKDIV_STRIDE)
-            divider = system_frequency / address_frequency
-            integer_part = int(divider)
-            fractional_part = int((divider - integer_part) * 256)
-            machine.mem32[clkdiv_address] = (integer_part << 16) | (fractional_part << 8)
+        clkdiv_address = pio_base + _SM_CLKDIV_OFFSET + (_DATA_STATE_MACHINE_OFFSET * _SM_CLKDIV_STRIDE)
+        divider = system_frequency / (data_frequency * 2)
+        integer_part = int(divider)
+        fractional_part = int((divider - integer_part) * 256)
+        machine.mem32[clkdiv_address] = (integer_part << 16) | (fractional_part << 8)
+        return self._data_frequency
 
     @property
     @micropython.native
@@ -268,10 +302,223 @@ class Hub75Driver:
     def shift_register_depth(self) -> int:
         return self._shift_register_depth
 
+    @property
+    @micropython.native
+    def data_frequency(self) -> int:
+        return self._data_frequency
+
+    @property
+    @micropython.native
+    def system_frequency(self) -> int:
+        return self._system_frequency
+
+    @micropython.native
+    def sync_system_frequency(self) -> int:
+        self._system_frequency = machine.freq()
+        self.set_frequency(self._data_frequency)
+        self._update_timing_buffer(self._base_cycles, self._brightness, self._blanking_time, self._system_frequency)
+        return self._system_frequency
+
+    @property
+    @micropython.native
+    def brightness(self) -> float:
+        return self._brightness
+    
+    @property
+    @micropython.native
+    def blanking_time(self) -> int:
+        return self._blanking_time
+
+    @property
+    @micropython.native
+    def refresh_rate(self) -> float:
+        return self._estimate_refresh_rate(self._base_cycles, self._brightness, self._blanking_time, self._system_frequency)
+
+    @micropython.native
+    def set_brightness(self, brightness: float) -> float:
+        self._brightness = max(0.0, min(1.0, brightness))
+        self._update_timing_buffer(self._base_cycles, self._brightness, self._blanking_time, self._system_frequency)
+        return self._brightness
+
+    @micropython.native
+    def set_blanking_time(self, nanoseconds: int) -> int:
+        self._blanking_time = max(0, nanoseconds)
+        self._update_timing_buffer(self._base_cycles, self._brightness, self._blanking_time, self._system_frequency)
+        return self._blanking_time
+
+    @property
+    @micropython.native
+    def gamma(self) -> float:
+        return self._gamma
+
+    @micropython.native
+    def set_gamma(self, gamma: float) -> float:
+        self._gamma = max(0.0, gamma)
+        self._gamma_lut = Hub75Driver._create_gamma_lut(self._gamma)
+        return self._gamma
+
+    @staticmethod
+    @micropython.native
+    def _create_gamma_lut(gamma: float) -> bytearray:
+        max_value = (1 << COLOR_BIT_DEPTH) - 1
+        lut = bytearray(1 << COLOR_BIT_DEPTH)
+        if gamma == 1.0:
+            for i in range(1 << COLOR_BIT_DEPTH):
+                lut[i] = i
+        else:
+            inv_max = 1.0 / max_value
+            for i in range(1 << COLOR_BIT_DEPTH):
+                lut[i] = round(max_value * ((i * inv_max) ** gamma))
+        return lut
+
+    @micropython.native
+    def _update_timing_buffer(self, base_cycles: int, brightness: float, blanking_time: int, system_frequency: int):
+        blanking_cycles = (blanking_time * system_frequency) // 1_000_000_000
+
+        for bitframe_index in range(COLOR_BIT_DEPTH):
+            # Represents the total on/off delay cycles that contribute to brightness ratio (not including blanking time)
+            brightness_cycle = base_cycles << bitframe_index
+
+            on_cycles = max(
+                int(brightness * brightness_cycle),
+                0
+            )
+
+            off_cycles = max(
+                # Off delay value is halved because delay occurs twice per bitframe (once before enable and once after to prevent ghosting)
+                ((brightness_cycle - on_cycles) // 2) + blanking_cycles,
+                0
+            )
+
+            off_timing_index = bitframe_index * 2
+            self._timing_buffer[off_timing_index] = off_cycles
+            self._timing_buffer[off_timing_index + 1] = on_cycles
+
+    @micropython.native
+    def _estimate_refresh_rate(self, base_cycles: int, brightness: float, blanking_time: int, system_frequency: int) -> float:
+        # PIO cycle overhead constants (derived from cycle-counting the assembly programs)
+        # Address SM: non-delay instructions per row
+        # mov(y,isr) + loop_exit + mov(y,osr) + loop_exit + mov(y,isr) + loop_exit + jmp(x_dec) + irq
+        ADDRESS_DISPLAY_OVERHEAD_CYCLES = const(8)
+        # Address SM sequential handshake cycles per row: mov(pins) + wait(minimum 1 cycle)
+        ADDRESS_HANDSHAKE_OVERHEAD_CYCLES = const(2)
+        # Data SM sequential handshake cycles per row: wait(LATCH_SAFE) + irq(LATCH_COMPLETE)
+        DATA_HANDSHAKE_OVERHEAD_CYCLES = const(2)
+        # Data SM per-row setup before the pixel clocking loop: mov(x, y)
+        DATA_RELOAD_OVERHEAD_CYCLES = const(1)
+        # Data SM per-pixel in the clocking loop: out(pins, 8) + jmp(x_dec)
+        DATA_CYCLES_PER_PIXEL = const(2)
+        # Address SM extra cycles per bitplane transition (not per row):
+        # out(null, 32) + out(isr, 32) + set(x, rows-1), replacing the normal 1-cycle jmp
+        BITPLANE_TRANSITION_EXTRA_CYCLES = const(3)
+
+        row_count = self.row_address_count
+
+        # Data SM runs at (data_frequency * 2), so each data SM cycle takes this many system cycles
+        data_clock_ratio = system_frequency / (self._data_frequency * 2)
+
+        # Data SM transfer time per row, converted to system clock cycles
+        data_transfer_cycles = (
+            DATA_RELOAD_OVERHEAD_CYCLES + DATA_CYCLES_PER_PIXEL * self._shift_register_depth
+        ) * data_clock_ratio
+
+        # Handshake overhead per row in system clock cycles
+        # Address SM contributes fixed cycles; Data SM contributes cycles scaled by clock ratio
+        handshake_cycles = (
+            ADDRESS_HANDSHAKE_OVERHEAD_CYCLES
+            + DATA_HANDSHAKE_OVERHEAD_CYCLES * data_clock_ratio
+        )
+
+        blanking_cycles = (blanking_time * system_frequency) // 1_000_000_000
+        total_frame_cycles = 0.0
+
+        for bitplane_index in range(COLOR_BIT_DEPTH):
+            brightness_cycle = base_cycles << bitplane_index
+            on_cycles = max(int(brightness * brightness_cycle), 0)
+            off_cycles = max(((brightness_cycle - on_cycles) // 2) + blanking_cycles, 0)
+
+            # Address SM display time per row for this bitplane
+            address_display_cycles = (
+                on_cycles + 2 * off_cycles + ADDRESS_DISPLAY_OVERHEAD_CYCLES
+            )
+
+            # The address SM and data SM work concurrently after the handshake;
+            # the row time is gated by whichever is slower
+            row_cycles = max(address_display_cycles, data_transfer_cycles) + handshake_cycles
+
+            total_frame_cycles += row_count * row_cycles
+
+        total_frame_cycles += BITPLANE_TRANSITION_EXTRA_CYCLES * COLOR_BIT_DEPTH
+
+        if total_frame_cycles <= 0:
+            return 0.0
+
+        return system_frequency / total_frame_cycles
+
+    @micropython.native
+    def set_target_refresh_rate(self, target_refresh_rate: float) -> float:
+        brightness = self._brightness
+        blanking_time = self._blanking_time
+        system_frequency = self._system_frequency
+
+        estimate = self._estimate_refresh_rate
+
+        # Check if target is achievable at base_cycles=1 (maximum refresh rate)
+        base_cycles = 1
+        maximum_refresh_rate = estimate(base_cycles, brightness, blanking_time, system_frequency)
+
+        if target_refresh_rate >= maximum_refresh_rate:
+            self._base_cycles = base_cycles
+            self._update_timing_buffer(base_cycles, brightness, blanking_time, system_frequency)
+            return maximum_refresh_rate
+
+        # Estimate upper bound for binary search: approximate frame time when display-limited
+        # frame_time is about rows * base_cycles * (2^n - 1), solve for base_cycles
+        bitplane_sum = (1 << COLOR_BIT_DEPTH) - 1
+        estimated_base_cycles = system_frequency // int(
+            target_refresh_rate * self.row_address_count * bitplane_sum
+        )
+        search_upper_bound = max(estimated_base_cycles * 2, 2)
+
+        # Verify the upper bound actually produces a rate below target (expand if not)
+        while estimate(search_upper_bound, brightness, blanking_time, system_frequency) > target_refresh_rate:
+            search_upper_bound *= 2
+
+        # Binary search: find the smallest base_cycles where refresh rate <= target
+        search_lower_bound = 1
+        while search_lower_bound < search_upper_bound:
+            search_midpoint = (search_lower_bound + search_upper_bound) // 2
+
+            midpoint_refresh_rate = estimate(search_midpoint, brightness, blanking_time, system_frequency)
+
+            if midpoint_refresh_rate > target_refresh_rate:
+                search_lower_bound = search_midpoint + 1
+            else:
+                search_upper_bound = search_midpoint
+
+        # Compare candidate with candidate-1 to find the closest to the target
+        base_cycles = search_lower_bound
+        rate_at_candidate = estimate(base_cycles, brightness, blanking_time, system_frequency)
+
+        if base_cycles > 1:
+            rate_above_target = estimate(base_cycles - 1, brightness, blanking_time, system_frequency)
+
+            # Pick whichever is arithmetically closer to the target
+            distance_below = target_refresh_rate - rate_at_candidate
+            distance_above = rate_above_target - target_refresh_rate
+
+            if distance_above <= distance_below:
+                base_cycles = base_cycles - 1
+
+        # Commit the final result
+        self._base_cycles = base_cycles
+        self._update_timing_buffer(base_cycles, brightness, blanking_time, system_frequency)
+        return estimate(base_cycles, brightness, blanking_time, system_frequency)
+
     @staticmethod
     @micropython.native
     def _get_pio_index(pio: rp2.PIO) -> int:
-        # Micropython API doesn't expose PIO index as a direct integer, so we need to extract it from its string representation
+        # Micropython API doesn't expose PIO index as a direct integer, so we need to (unfortunately) extract it from its string representation
         match = _PIO_INDEX_EXPRESSION.match(repr(pio))
 
         if not match:
@@ -302,51 +549,47 @@ class Hub75Driver:
     @staticmethod
     @micropython.native
     def _create_pio_programs(
-        address_bit_count: int,
-        shift_register_depth: int
+        address_bit_count: int
     ) -> tuple[function, function]:
+
         OE_ASSERTED = const(0b0)
         OE_DEASSERTED = const(0b1)
 
         @rp2.asm_pio(
             sideset_init=rp2.PIO.OUT_HIGH,
-            out_init=[rp2.PIO.OUT_LOW] * address_bit_count
+            out_init=[rp2.PIO.OUT_LOW] * address_bit_count,
+            out_shiftdir=rp2.PIO.SHIFT_RIGHT,
+            autopull=True,
+            pull_thresh=32
         )
         def address_program():
-            # Dynamic jumps to instruction indexes 0-7 creates accumulated exponential delays for bitplane timing
-            # For example, when COLOR_BIT_DEPTH is 8:
-            # when index is 7 ->                                1 = 1 cycle total delay
-            # when index is 6 ->                            1 + 1 = 2 cycles total delay
-            # when index is 5 ->                        2 + 1 + 1 = 4 cycles total delay
-            # ...
-            # when index is 0 -> 64 + 32 + 16 + 8 + 4 + 2 + 1 + 1 = 128 cycles total delay
-            jmp("extra_delay_48")                           .side(OE_ASSERTED) [15]
-            label("extra_delay_48_exit") # Getting from instruction 0 to here takes 64 cycles total (48 cycle "detour" + 16 cycle main path)
-            jmp("extra_delay_16")                           .side(OE_ASSERTED) [15]
-            label("extra_delay_16_exit") # Getting from instruction 1 to here takes 32 cycles total (16 cycle "detour" + 16 cycle main path)
-            nop()                                           .side(OE_ASSERTED) [15]
-            nop()                                           .side(OE_ASSERTED) [7]
-            nop()                                           .side(OE_ASSERTED) [3]
-            nop()                                           .side(OE_ASSERTED) [1]
-            nop()                                           .side(OE_ASSERTED)
-            nop()                                           .side(OE_ASSERTED)
-            irq(_LATCH_SAFE_IRQ)                            .side(OE_DEASSERTED)
-            jmp(x_dec, "write_address")                     .side(OE_DEASSERTED)
-            set(x, (0b1 <<  address_bit_count) - 1)         .side(OE_DEASSERTED)
-            jmp(y_dec, "write_address")                     .side(OE_DEASSERTED)
-            set(y, 7)                                       .side(OE_DEASSERTED)
+            # We don't want to discard the first timing word
+            # We jump over the instruction that would do so
+            jmp("initialize")                      .side(OE_DEASSERTED)
+            wrap_target()
+            jmp(x_dec, "write_address")            .side(OE_DEASSERTED)
+            # Discard data from OSR to hold next delays
+            out(null, 32)                          .side(OE_DEASSERTED)
+            label("initialize")
+            # After this, ISR contains the 'off' delay from the first word, OSR contains the 'on' delay from the second word (autopulled)
+            out(isr, 32)                           .side(OE_DEASSERTED)
+            set(x, (0b1 << address_bit_count) - 1) .side(OE_DEASSERTED)
             label("write_address")
-            # We invert the bits here so it counts up from 0 to 15 (to work its way down as addresses increase)
-            # (even though the x register itself counts down from 15 to 0)
-            mov(pins, invert(x))   .side(OE_DEASSERTED)
-            wait(1, irq, _LATCH_COMPLETE_IRQ)               .side(OE_DEASSERTED)
-            mov(pc, y)                                      .side(OE_DEASSERTED)
-            label("extra_delay_16")
-            jmp("extra_delay_16_exit")                      .side(OE_ASSERTED) [15]
-            label("extra_delay_48")
-            nop()                                           .side(OE_ASSERTED) [15]
-            nop()                                           .side(OE_ASSERTED) [15]
-            jmp("extra_delay_48_exit")                      .side(OE_ASSERTED) [15]
+            irq(_LATCH_SAFE_IRQ)                   .side(OE_DEASSERTED)
+            # We invert the bits here so it counts up from 0 to the highest address
+            # (even though the x register itself counts down from the highest address to 0)
+            mov(pins, invert(x))                   .side(OE_DEASSERTED)
+            wait(1, irq, _LATCH_COMPLETE_IRQ)      .side(OE_DEASSERTED)
+            mov(y, isr)                            .side(OE_DEASSERTED)
+            label("off_delay_before_enable")
+            jmp(y_dec, "off_delay_before_enable")  .side(OE_DEASSERTED)
+            mov(y, osr)                            .side(OE_DEASSERTED)
+            label("on_delay")
+            jmp(y_dec, "on_delay")                 .side(OE_ASSERTED)
+            mov(y, isr)                            .side(OE_DEASSERTED)
+            label("off_delay_after_disable")
+            jmp(y_dec, "off_delay_after_disable")  .side(OE_DEASSERTED)
+            wrap()
 
         CLOCK_ASSERTED = const(0b01)
         LATCH_ASSERTED = const(0b10)
@@ -356,30 +599,13 @@ class Hub75Driver:
             sideset_init=[rp2.PIO.OUT_LOW] * 2,
             out_init=[rp2.PIO.OUT_LOW] * 6,
             out_shiftdir=rp2.PIO.SHIFT_RIGHT,
-            in_shiftdir=rp2.PIO.SHIFT_RIGHT,
             autopull=True,
             pull_thresh=32
         )
         def data_program():
-            # The largest value we can set directly into x register is 0b11111 (31)
-            # We use the ISR together with x to build larger values 5 bits at a time and shift them in
-            counter_value = shift_register_depth - 1
-            right_isr_padding = 32
-
-            while counter_value:
-                least_significant_bits = counter_value & 0b11111
-                counter_value >>= 5
-                right_isr_padding -= 5
-
-                if right_isr_padding < 0:
-                    raise ValueError("'shift_register_depth' must fit within 32 bits")
-
-                set(x, least_significant_bits)  .side(BOTH_DEASSERTED)
-                in_(x, 5)                       .side(BOTH_DEASSERTED)
-
-            in_(null, right_isr_padding)        .side(BOTH_DEASSERTED)
+            out(y, 32)                          .side(BOTH_DEASSERTED)
             wrap_target()
-            mov(x, isr)                         .side(BOTH_DEASSERTED)
+            mov(x, y)                           .side(BOTH_DEASSERTED)
             label("write_data")
             out(pins, 8)                        .side(BOTH_DEASSERTED)
             jmp(x_dec, "write_data")            .side(CLOCK_ASSERTED)
@@ -391,18 +617,3 @@ class Hub75Driver:
 
         return address_program, data_program
     
-    @staticmethod
-    @micropython.native
-    def _get_pio_program_size(program) -> int:
-        return len(program[_PIO_PROGRAM_DATA_INDEX])
-
-    @staticmethod
-    @micropython.native
-    def _create_padding_pio_program(size: int):
-
-        @rp2.asm_pio()
-        def padding_pio():
-            for _ in range(size):
-                nop()
-
-        return padding_pio

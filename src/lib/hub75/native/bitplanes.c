@@ -38,20 +38,21 @@ void pack_pixel_pair(
 void load_rgb888_kernel(
     const uint8_t *input_data,
     size_t pixel_count,
-    uint8_t *output_data
+    uint8_t *output_data,
+    const uint8_t *gamma_lut
 ) {
     const size_t bitplane_size = pixel_count / 2;
 
     for (size_t pixel_index = 0; pixel_index < bitplane_size; pixel_index++) {
         const size_t top_pixel_data_index = pixel_index * 3;
         const size_t bottom_pixel_data_index = (pixel_index + bitplane_size) * 3;
-        const uint32_t r1 = input_data[top_pixel_data_index];
-        const uint32_t g1 = input_data[top_pixel_data_index + 1];
-        const uint32_t b1 = input_data[top_pixel_data_index + 2];
+        const uint32_t r1 = gamma_lut[input_data[top_pixel_data_index]];
+        const uint32_t g1 = gamma_lut[input_data[top_pixel_data_index + 1]];
+        const uint32_t b1 = gamma_lut[input_data[top_pixel_data_index + 2]];
 
-        const uint32_t r2 = input_data[bottom_pixel_data_index];
-        const uint32_t g2 = input_data[bottom_pixel_data_index + 1];
-        const uint32_t b2 = input_data[bottom_pixel_data_index + 2];
+        const uint32_t r2 = gamma_lut[input_data[bottom_pixel_data_index]];
+        const uint32_t g2 = gamma_lut[input_data[bottom_pixel_data_index + 1]];
+        const uint32_t b2 = gamma_lut[input_data[bottom_pixel_data_index + 2]];
 
         uint8_t *initial_bitplane = output_data + pixel_index;
 
@@ -62,7 +63,8 @@ void load_rgb888_kernel(
 void load_rgb565_kernel(
     const uint8_t *input_data,
     size_t pixel_count,
-    uint8_t *output_data
+    uint8_t *output_data,
+    const uint8_t *gamma_lut
 ) {
     const size_t bitplane_size = pixel_count / 2;
 
@@ -87,6 +89,15 @@ void load_rgb565_kernel(
         r2 |= (r2 >> 5);
         g2 |= (g2 >> 6);
         b2 |= (b2 >> 5);
+
+        // Apply gamma correction after full 8-bit reconstruction
+        r1 = gamma_lut[r1];
+        g1 = gamma_lut[g1];
+        b1 = gamma_lut[b1];
+
+        r2 = gamma_lut[r2];
+        g2 = gamma_lut[g2];
+        b2 = gamma_lut[b2];
 
         uint8_t *initial_bitplane = output_data + pixel_index;
 

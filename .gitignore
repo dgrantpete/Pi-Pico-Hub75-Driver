@@ -67,3 +67,5 @@ src/py/
 .claude/
 
 release-assets/
+
+src/typings

@@ -112,13 +112,22 @@ Alternatively, download the full zip from [Releases](https://github.com/dgrantpe
 The included `main.py` runs a visual demo on startup. Access the REPL to control it:
 
 ```python
-balatro()   # Animated spiral effect
-plasma()    # Classic plasma effect
-fire()      # Doom-style fire effect
-spiral()    # Rainbow spiral
-stop()      # Stop the current effect
+# On boot, cycle() runs automatically — rotating through all effects
 
-print_pinout()  # Show wiring for your configuration
+cycle()          # Cycle through all effects (default on boot)
+balatro()        # Animated spiral effect
+plasma()         # Classic plasma effect
+fire()           # Doom-style fire effect
+spiral()         # Rainbow spiral
+stop()           # Stop the current effect
+
+# Runtime display controls
+brightness(0.5)      # Set brightness (0.0 - 1.0)
+blanking_time(1000)  # Set blanking time in ns (reduces ghosting)
+gamma(2.2)           # Set gamma correction exponent
+refresh_rate(120)    # Set target refresh rate in Hz
+
+print_pinout()       # Show wiring for your configuration
 ```
 
 ### Basic Usage
@@ -134,7 +143,12 @@ driver = Hub75Driver(
     base_data_pin=Pin(0),
     base_clock_pin=Pin(6),
     output_enable_pin=Pin(8),
-    base_address_pin=Pin(9)
+    base_address_pin=Pin(9),
+    # Optional parameters (showing defaults):
+    # brightness=1.0,           # Display brightness (0.0 - 1.0)
+    # gamma=2.2,                # Gamma correction exponent
+    # blanking_time=0,          # Dead time in ns to reduce ghosting
+    # target_refresh_rate=120.0 # Target refresh rate in Hz
 )
 
 # Use the display wrapper for drawing
@@ -373,6 +387,7 @@ driver = Hub75Driver(
 ### Troubleshooting
 
 **Wrong colors or ghosting?**
+- Try increasing `blanking_time` (e.g., `driver.set_blanking_time(1000)` for 1000 ns of dead time between rows)
 - Try reducing `data_frequency` (e.g., 20 MHz instead of 25 MHz)
 - Check your wiring — especially ground connections
 
@@ -384,6 +399,7 @@ driver = Hub75Driver(
 **Flickering or dim display?**
 - Ensure adequate 5V power supply (panels can draw 2-4A at full brightness)
 - Try adjusting `data_frequency`
+- Check brightness with `driver.set_brightness(1.0)` to ensure it's at maximum
 
 ### Pin Configuration
 
@@ -407,16 +423,64 @@ The driver expects pins in consecutive groups:
 
 Low-level driver for direct hardware control.
 
-- `load_rgb888(buffer)` - Load RGB888 pixel data (3 bytes per pixel)
-- `load_rgb565(buffer)` - Load RGB565 pixel data (2 bytes per pixel)
-- `flip()` - Swap buffers to display the loaded frame
-- `clear()` - Clear the inactive buffer
-- `set_frequency(data_frequency, address_frequency)` - Adjust timing
-- `deinit()` - Clean shutdown
+**Constructor:**
+
+```python
+Hub75Driver(
+    *,
+    address_bit_count: int,
+    shift_register_depth: int,
+    base_data_pin: Pin,
+    base_clock_pin: Pin,
+    output_enable_pin: Pin,
+    base_address_pin: Pin,
+    pio: PIO | None = None,
+    data_frequency: int = 20_000_000,
+    brightness: float = 1.0,
+    gamma: float = 2.2,
+    blanking_time: int = 0,
+    target_refresh_rate: float = 120.0
+)
+```
+
+**Frame Operations:**
+
+| Method | Description |
+|--------|-------------|
+| `load_rgb888(buffer)` | Load RGB888 pixel data (3 bytes per pixel). Applies gamma correction. |
+| `load_rgb565(buffer)` | Load RGB565 pixel data (2 bytes per pixel). Applies gamma correction. |
+| `flip()` | Swap buffers to display the loaded frame |
+| `clear()` | Clear the inactive buffer |
+| `deinit()` | Graceful shutdown of DMA chains, PIO state machines, and programs |
+
+**Display Control:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `set_brightness(brightness)` | `float` | Set display brightness (0.0 - 1.0) |
+| `set_blanking_time(nanoseconds)` | `int` | Set dead time in ns between row switches to reduce ghosting |
+| `set_gamma(gamma)` | `float` | Set gamma correction exponent (default 2.2) |
+| `set_target_refresh_rate(target_refresh_rate)` | `float` | Set target refresh rate in Hz. Returns closest achievable rate. |
+| `set_frequency(data_frequency)` | `int` | Set the PIO data clock frequency in Hz |
+| `sync_system_frequency()` | `int` | Re-sync internal timings after changing `machine.freq()` |
+
+**Properties (read-only):**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `brightness` | `float` | Current brightness (0.0 - 1.0) |
+| `blanking_time` | `int` | Current blanking time in nanoseconds |
+| `gamma` | `float` | Current gamma correction exponent |
+| `refresh_rate` | `float` | Current estimated refresh rate in Hz |
+| `data_frequency` | `int` | Current PIO data clock frequency |
+| `system_frequency` | `int` | Cached system clock frequency |
+| `address_bit_count` | `int` | Number of address lines |
+| `row_address_count` | `int` | Number of row addresses (2^address_bit_count) |
+| `shift_register_depth` | `int` | Pixels per row shift |
 
 ### Hub75Display
 
-High-level wrapper with MicroPython FrameBuffer compatibility.
+FrameBuffer subclass for drawing to HUB75 panels. Compatible with MicroPython libraries that expect a FrameBuffer device (e.g. writer.py, CWriter).
 
 - `show()` - Load buffer and flip
 - `fill(color)` - Fill with RGB565 color

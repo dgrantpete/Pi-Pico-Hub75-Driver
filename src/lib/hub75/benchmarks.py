@@ -1,15 +1,6 @@
 import gc
 import time
 import urandom
-import machine
-from . import Hub75Driver
-
-def bit_length(n: int) -> int:
-    length = 0
-    while n > 0:
-        n >>= 1
-        length += 1
-    return length
 
 # ============================================================================
 # Synthetic RGB Data Generators
@@ -300,31 +291,12 @@ def print_compact_report(width, height, iterations, results):
 # ============================================================================
 
 def run_benchmark(
-    width=64,
-    height=64,
+    driver,
     iterations=50,
-    verbose=True,
-    base_data_pin=0,
-    base_clock_pin=6,
-    base_address_pin=18,
-    output_enable_pin=12
+    verbose=True
 ):
-    # Calculate address_bit_count from height
-    # height = 2 * (2 ** address_bit_count), so address_bit_count = log2(height / 2)
-    address_bit_count = bit_length(height // 2) - 1
-    if 2 ** address_bit_count != height // 2:
-        # height/2 is not a power of 2, round up
-        address_bit_count = bit_length(height // 2 - 1)
-
-    # Create Hub75Driver instance
-    driver = Hub75Driver(
-        address_bit_count=address_bit_count,
-        shift_register_depth=width,
-        base_data_pin=machine.Pin(base_data_pin),
-        base_clock_pin=machine.Pin(base_clock_pin),
-        base_address_pin=machine.Pin(base_address_pin),
-        output_enable_pin=machine.Pin(output_enable_pin)
-    )
+    width = driver.shift_register_depth
+    height = driver.row_address_count * 2
 
     # Generate synthetic data
     rgb888_data = generate_rgb888_data(width, height)
@@ -359,28 +331,19 @@ def run_benchmark(
     else:
         print_compact_report(width, height, iterations, results)
 
-    # Cleanup
-    driver.deinit()
-    del driver, rgb888_data, rgb565_data
+    # Cleanup synthetic data
+    del rgb888_data, rgb565_data
     gc.collect()
 
 # ============================================================================
 # Quick Test Configurations
 # ============================================================================
 
-def quick_test(verbose=True, **pin_config):
-    run_benchmark(width=32, height=32, iterations=10, verbose=verbose, **pin_config)
+def quick_test(driver, verbose=True):
+    run_benchmark(driver, iterations=10, verbose=verbose)
 
-def standard_test(verbose=True, **pin_config):
-    run_benchmark(width=64, height=64, iterations=50, verbose=verbose, **pin_config)
+def standard_test(driver, verbose=True):
+    run_benchmark(driver, iterations=50, verbose=verbose)
 
-def stress_test(verbose=True, **pin_config):
-    run_benchmark(width=128, height=64, iterations=100, verbose=verbose, **pin_config)
-
-# ============================================================================
-# Module Entry Point
-# ============================================================================
-
-if __name__ == '__main__':
-    # Run standard test by default
-    standard_test()
+def stress_test(driver, verbose=True):
+    run_benchmark(driver, iterations=100, verbose=verbose)
