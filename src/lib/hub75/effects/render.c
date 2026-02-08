@@ -99,9 +99,9 @@ static inline uint32_t fire_hash(uint32_t x, uint32_t y, uint32_t frame_time) {
     return hash_value ^ (hash_value >> 16);
 }
 
-void render_plasma_frame_kernel(uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
-    for (uint8_t y = 0; y < height; y++) {
-        for (uint8_t x = 0; x < width; x++) {
+void render_plasma_frame_kernel(uint8_t *buffer, uint16_t width, uint16_t height, uint8_t frame_time) {
+    for (uint16_t y = 0; y < height; y++) {
+        for (uint16_t x = 0; x < width; x++) {
             // Combine multiple sine waves for plasma effect
             uint8_t horizontal_wave = SIN_TABLE[(x + frame_time) & 0xFF];
             uint8_t vertical_wave = SIN_TABLE[(y + frame_time) & 0xFF];
@@ -123,7 +123,7 @@ void render_plasma_frame_kernel(uint8_t *buffer, uint8_t width, uint8_t height, 
     }
 }
 
-void render_fire_frame_kernel(uint8_t *fire_buffer, uint8_t *buffer, uint8_t width, uint8_t height, uint8_t frame_time) {
+void render_fire_frame_kernel(uint8_t *fire_buffer, uint8_t *buffer, uint16_t width, uint16_t height, uint8_t frame_time) {
     // Propagate fire upward with cooling and horizontal spread
     for (int y = 0; y < height - 1; y++) {
         for (int x = 0; x < width; x++) {
@@ -162,11 +162,11 @@ void render_spiral_frame_kernel(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
     uint8_t *buffer,
-    uint16_t pixel_count,
+    uint32_t pixel_count,
     uint8_t frame_time,
     uint8_t tightness
 ) {
-    for (uint16_t pixel_index = 0; pixel_index < pixel_count; pixel_index++) {
+    for (uint32_t pixel_index = 0; pixel_index < pixel_count; pixel_index++) {
         // Core spiral formula: hue = angle + radius * tightness + time
         uint8_t hue = angle_table[pixel_index] + ((radius_table[pixel_index] * tightness) >> 4) + frame_time;
 
@@ -182,14 +182,14 @@ void render_balatro_frame_kernel(
     const uint8_t *angle_table,
     const uint8_t *radius_table,
     uint8_t *buffer,
-    uint8_t width, uint8_t height,
+    uint16_t width, uint16_t height,
     uint16_t frame_time,
     uint8_t spin_speed,
     uint8_t warp_amount
 ) {
-    for (uint8_t y = 0; y < height; y++) {
-        for (uint8_t x = 0; x < width; x++) {
-            uint16_t pixel_index = (uint16_t)y * width + x;
+    for (uint16_t y = 0; y < height; y++) {
+        for (uint16_t x = 0; x < width; x++) {
+            uint32_t pixel_index = (uint32_t)y * width + x;
 
             // Get pre-computed angle and radius
             uint8_t angle = angle_table[pixel_index];

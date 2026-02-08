@@ -8,8 +8,8 @@ static mp_obj_t render_plasma_frame(size_t n_args, const mp_obj_t *args) {
     mp_buffer_info_t buffer;
     mp_get_buffer_raise(args[0], &buffer, MP_BUFFER_WRITE);
 
-    uint8_t width = (uint8_t)mp_obj_get_int(args[1]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[2]);
+    uint16_t width = (uint16_t)mp_obj_get_int(args[1]);
+    uint16_t height = (uint16_t)mp_obj_get_int(args[2]);
     uint8_t frame_time = (uint8_t)mp_obj_get_int(args[3]);
 
     render_plasma_frame_kernel((uint8_t *)buffer.buf, width, height, frame_time);
@@ -24,8 +24,8 @@ static mp_obj_t render_fire_frame(size_t n_args, const mp_obj_t *args) {
     mp_get_buffer_raise(args[0], &fire_buffer, MP_BUFFER_WRITE);
     mp_get_buffer_raise(args[1], &buffer, MP_BUFFER_WRITE);
 
-    uint8_t width = (uint8_t)mp_obj_get_int(args[2]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[3]);
+    uint16_t width = (uint16_t)mp_obj_get_int(args[2]);
+    uint16_t height = (uint16_t)mp_obj_get_int(args[3]);
     uint8_t frame_time = (uint8_t)mp_obj_get_int(args[4]);
 
     render_fire_frame_kernel((uint8_t *)fire_buffer.buf, (uint8_t *)buffer.buf, width, height, frame_time);
@@ -42,12 +42,12 @@ static mp_obj_t render_spiral_frame(size_t n_args, const mp_obj_t *args) {
     mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
     mp_get_buffer_raise(args[2], &buffer, MP_BUFFER_WRITE);
 
-    uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
+    uint16_t width = (uint16_t)mp_obj_get_int(args[3]);
+    uint16_t height = (uint16_t)mp_obj_get_int(args[4]);
     uint8_t frame_time = (uint8_t)mp_obj_get_int(args[5]);
     uint8_t tightness = (uint8_t)mp_obj_get_int(args[6]);
 
-    uint16_t pixel_count = (uint16_t)width * height;
+    uint32_t pixel_count = (uint32_t)width * height;
 
     render_spiral_frame_kernel(
         (const uint8_t *)angle_buffer.buf,
@@ -70,8 +70,8 @@ static mp_obj_t render_balatro_frame(size_t n_args, const mp_obj_t *args) {
     mp_get_buffer_raise(args[1], &radius_buffer, MP_BUFFER_READ);
     mp_get_buffer_raise(args[2], &buffer, MP_BUFFER_WRITE);
 
-    uint8_t width = (uint8_t)mp_obj_get_int(args[3]);
-    uint8_t height = (uint8_t)mp_obj_get_int(args[4]);
+    uint16_t width = (uint16_t)mp_obj_get_int(args[3]);
+    uint16_t height = (uint16_t)mp_obj_get_int(args[4]);
     uint16_t frame_time = (uint16_t)mp_obj_get_int(args[5]);
     uint8_t spin_speed = (uint8_t)mp_obj_get_int(args[6]);
     uint8_t warp_amount = (uint8_t)mp_obj_get_int(args[7]);
