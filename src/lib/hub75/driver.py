@@ -44,6 +44,7 @@ _PIO_IRQ_FORCE_OFFSET = const(0x034)
 _PIO_TX_FLAG_BASE_INDEX = const(24)
 
 _PIO_INDEX_EXPRESSION = re.compile(r'PIO\((\d)\)')
+_PIN_GPIO_EXPRESSION = re.compile(r'GPIO(\d+)')
 
 class Hub75Driver:
     @micropython.native
@@ -115,10 +116,16 @@ class Hub75Driver:
         # Seed data state machine with number of bits to clock out for each address
         self._data_state_machine.put(shift_register_depth - 1)
 
+        # Derive DIN (C) and EN (B) pins from base address pin (A)
+        addr_pin_num = int(_PIN_GPIO_EXPRESSION.search(repr(base_address_pin)).group(1))
+        en_pin = machine.Pin(addr_pin_num + 1, machine.Pin.OUT, value=0)
+        din_pin = machine.Pin(addr_pin_num + 2)
+
         self._address_state_machine = rp2.StateMachine(
             address_state_machine_id,
             address_program,
             set_base=base_address_pin,
+            out_base=din_pin,
             sideset_base=output_enable_pin
         )
 
@@ -555,14 +562,10 @@ class Hub75Driver:
         OE_ASSERTED = const(0b0)
         OE_DEASSERTED = const(0b1)
 
-        # The middle bit (0b010) is kept low since its the enable for the shift register
-        ADDRESS_CLOCK_ASSERTED = const(0b100)
-        ADDRESS_DATA_ASSERTED = const(0b001)
-        ADDRESS_BOTH_DEASSERTED = const(0b000)
-
         @rp2.asm_pio(
             sideset_init=rp2.PIO.OUT_HIGH,
-            set_init=[rp2.PIO.OUT_LOW] * 3,
+            set_init=rp2.PIO.OUT_LOW,         # A (CLK) — 1 pin only
+            out_init=rp2.PIO.OUT_LOW,         # DIN via out pin group (1 pin at out_base = C)
             out_shiftdir=rp2.PIO.SHIFT_RIGHT,
             autopull=True,
             pull_thresh=32
@@ -579,17 +582,21 @@ class Hub75Driver:
             # After this, ISR contains the 'off' delay from the first word, OSR contains the 'on' delay from the second word (autopulled)
             out(isr, 32)                           .side(OE_DEASSERTED)
             set(x, (0b1 << address_bit_count) - 1) .side(OE_DEASSERTED)
-
-            # New code to experiment for jkorte-dev
-            # (Max delay cycles of 15 hardcoded temporarily so display doesn't miss edges)
-            # Clock in first '1' bit
-            set(pins, ADDRESS_DATA_ASSERTED).side(OE_DEASSERTED) [15]
-            set(pins, ADDRESS_DATA_ASSERTED | ADDRESS_CLOCK_ASSERTED).side(OE_DEASSERTED) [15]
-            set(pins, ADDRESS_BOTH_DEASSERTED).side(OE_DEASSERTED) [15]
+            # Set DIN high so the first clock latches a '1' into the shift register
+            # DIN is controlled via the out pin group (mov), CLK via the set pin group (set)
+            # PIO ORs the out and set mappings, so DIN stays high through the clock pulse
+            mov(pins, invert(null))                .side(OE_DEASSERTED) [15]
 
             label("write_address")
+            # Clock the shift register — DIN is high for first row (from init), low for rest
+            set(pins, 1)                           .side(OE_DEASSERTED) [15] # CLK high
+            set(pins, 0)                           .side(OE_DEASSERTED) [15] # CLK low
+            # Set DIN low for all subsequent clocks
+            mov(pins, null)                        .side(OE_DEASSERTED) [15]
+            # Handshake with data SM
             irq(_LATCH_SAFE_IRQ)                   .side(OE_DEASSERTED)
             wait(1, irq, _LATCH_COMPLETE_IRQ)      .side(OE_DEASSERTED)
+            # Display timing
             mov(y, isr)                            .side(OE_DEASSERTED)
             label("off_delay_before_enable")
             jmp(y_dec, "off_delay_before_enable")  .side(OE_DEASSERTED)
@@ -599,10 +606,6 @@ class Hub75Driver:
             mov(y, isr)                            .side(OE_DEASSERTED)
             label("off_delay_after_disable")
             jmp(y_dec, "off_delay_after_disable")  .side(OE_DEASSERTED)
-
-            # Same experiment as above, we send another clock pulse to move bit through the shift register
-            set(pins, ADDRESS_CLOCK_ASSERTED).side(OE_DEASSERTED) [15]
-            set(pins, ADDRESS_BOTH_DEASSERTED).side(OE_DEASSERTED) [15]
 
             wrap()
 
