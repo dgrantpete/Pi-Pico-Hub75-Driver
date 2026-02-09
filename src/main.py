@@ -1,3 +1,7 @@
+from sys import path
+
+path.append('lib')
+
 from time import sleep_ms
 from machine import Pin
 from hub75 import Hub75Driver
@@ -62,18 +66,30 @@ def draw_rainbow_concentric():
         display.rect(d, d, WIDTH - 2 * d, HEIGHT - 2 * d, color)
     display.show()
 
+NORMAL_REFRESH = 120.0
+SLOW_REFRESH = 0.1
+
 while True:
     draw_center_square(RED)
-    sleep_ms(1000)
+    sleep_ms(5000)
     draw_rainbow_rows()
     sleep_ms(5000)
+    driver.set_target_refresh_rate(SLOW_REFRESH)
+    sleep_ms(5000)
+    driver.set_target_refresh_rate(NORMAL_REFRESH)
 
     draw_center_square(GREEN)
-    sleep_ms(1000)
+    sleep_ms(5000)
     draw_rainbow_columns()
     sleep_ms(5000)
+    driver.set_target_refresh_rate(SLOW_REFRESH)
+    sleep_ms(5000)
+    driver.set_target_refresh_rate(NORMAL_REFRESH)
 
     draw_center_square(BLUE)
-    sleep_ms(1000)
+    sleep_ms(5000)
     draw_rainbow_concentric()
     sleep_ms(5000)
+    driver.set_target_refresh_rate(SLOW_REFRESH)
+    sleep_ms(5000)
+    driver.set_target_refresh_rate(NORMAL_REFRESH)
