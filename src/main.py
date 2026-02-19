@@ -258,7 +258,7 @@ def blanking_time(nanoseconds: int | None = None):
         actual = driver.set_blanking_time(nanoseconds)
         print(f"Blanking time set to {actual} ns")
 
-def gamma(value: gamma_module.SRGB | gamma_module.Power | None = ...):
+def gamma(value: gamma_module.SRGB | gamma_module.Power | None = ...): # type: ignore
     """Get or set display gamma correction (default SRGB).
 
     Usage:
