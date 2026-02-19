@@ -14,10 +14,11 @@ class Direct:
         return self._bit_count
     
 class ShiftRegister:
-    def __init__(self, data_pin: Pin, clock_pin: Pin, depth: int):
+    def __init__(self, data_pin: Pin, clock_pin: Pin, depth: int, clock_frequency: int | None = None):
         self._data_pin = data_pin
         self._clock_pin = clock_pin
         self._depth = depth
+        self._clock_frequency = clock_frequency
 
     @property
     def data_pin(self) -> Pin:
@@ -30,3 +31,7 @@ class ShiftRegister:
     @property
     def depth(self) -> int:
         return self._depth
+
+    @property
+    def clock_frequency(self) -> int | None:
+        return self._clock_frequency

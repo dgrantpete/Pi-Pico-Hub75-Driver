@@ -45,6 +45,20 @@ _PIO_TX_FLAG_BASE_INDEX = const(24)
 
 _PIO_INDEX_EXPRESSION = re.compile(r'PIO\((\d)\)')
 
+class _StateMachineSet:
+    def __init__(
+        self,
+        *,
+        data_state_machine: rp2.StateMachine,
+        address_state_machine: rp2.StateMachine,
+        address_update_cycles: int,
+        bitplane_initialize_cycles: int,
+    ):
+        self.data_state_machine = data_state_machine
+        self.address_state_machine = address_state_machine
+        self.address_update_cycles = address_update_cycles
+        self.bitplane_initialize_cycles = bitplane_initialize_cycles
+
 class Hub75Driver:
     @micropython.native
     def __init__(
@@ -81,6 +95,25 @@ class Hub75Driver:
         self._brightness = max(0.0, min(1.0, brightness))
         self._blanking_time = max(0, blanking_time)
 
+        self._pio = pio if pio is not None else rp2.PIO(_DEFAULT_PIO_INDEX)
+        self._pio_block_id = self.__class__._get_pio_index(self._pio)
+
+        state_machine_set = self.__class__._create_state_machines(
+            row_addressing=row_addressing,
+            pio=self._pio,
+            pio_block_id=self._pio_block_id,
+            output_enable_pin=output_enable_pin,
+            base_data_pin=base_data_pin,
+            base_clock_pin=base_clock_pin,
+            data_frequency=data_frequency,
+            shift_register_depth=shift_register_depth,
+            system_frequency=self._system_frequency
+        )
+        self._data_state_machine = state_machine_set.data_state_machine
+        self._address_state_machine = state_machine_set.address_state_machine
+        self._address_update_cycles = state_machine_set.address_update_cycles
+        self._bitplane_initialize_cycles = state_machine_set.bitplane_initialize_cycles
+
         self.set_target_refresh_rate(target_refresh_rate)
 
         buffer_size = self.row_address_count * shift_register_depth * COLOR_BIT_DEPTH
@@ -91,20 +124,6 @@ class Hub75Driver:
         ]
 
         self._active_buffer_index = 0
-
-        self._pio = pio if pio is not None else rp2.PIO(_DEFAULT_PIO_INDEX)
-        self._pio_block_id = self.__class__._get_pio_index(self._pio)
-
-        (self._data_state_machine, self._address_state_machine) = self.__class__._create_state_machines(
-            row_addressing=row_addressing,
-            pio=self._pio,
-            pio_block_id=self._pio_block_id,
-            output_enable_pin=output_enable_pin,
-            base_data_pin=base_data_pin,
-            base_clock_pin=base_clock_pin,
-            data_frequency=data_frequency,
-            shift_register_depth=shift_register_depth
-        )
 
         self._active_buffer_address_pointer = array('I', [uctypes.addressof(self._active_buffer)])
 
@@ -394,8 +413,8 @@ class Hub75Driver:
         # Address SM: non-delay instructions per row
         # mov(y,isr) + loop_exit + mov(y,osr) + loop_exit + mov(y,isr) + loop_exit + jmp(x_dec) + irq
         ADDRESS_DISPLAY_OVERHEAD_CYCLES = const(8)
-        # Address SM sequential handshake cycles per row: mov(pins) + wait(minimum 1 cycle)
-        ADDRESS_HANDSHAKE_OVERHEAD_CYCLES = const(2)
+        # Address SM sequential handshake cycles per row: update_address() + wait(minimum 1 cycle)
+        address_handshake_overhead_cycles = self._address_update_cycles + 1
         # Data SM sequential handshake cycles per row: wait(LATCH_SAFE) + irq(LATCH_COMPLETE)
         DATA_HANDSHAKE_OVERHEAD_CYCLES = const(2)
         # Data SM per-row setup before the pixel clocking loop: mov(x, y)
@@ -403,8 +422,8 @@ class Hub75Driver:
         # Data SM per-pixel in the clocking loop: out(pins, 8) + jmp(x_dec)
         DATA_CYCLES_PER_PIXEL = const(2)
         # Address SM extra cycles per bitplane transition (not per row):
-        # out(null, 32) + out(isr, 32) + set(x, rows-1), replacing the normal 1-cycle jmp
-        BITPLANE_TRANSITION_EXTRA_CYCLES = const(3)
+        # out(null, 32) + out(isr, 32) + initialize_bitplane(), replacing the normal 1-cycle jmp
+        bitplane_transition_extra_cycles = 2 + self._bitplane_initialize_cycles
 
         row_count = self.row_address_count
 
@@ -419,7 +438,7 @@ class Hub75Driver:
         # Handshake overhead per row in system clock cycles
         # Address SM contributes fixed cycles; Data SM contributes cycles scaled by clock ratio
         handshake_cycles = (
-            ADDRESS_HANDSHAKE_OVERHEAD_CYCLES
+            address_handshake_overhead_cycles
             + DATA_HANDSHAKE_OVERHEAD_CYCLES * data_clock_ratio
         )
 
@@ -442,7 +461,7 @@ class Hub75Driver:
 
             total_frame_cycles += row_count * row_cycles
 
-        total_frame_cycles += BITPLANE_TRANSITION_EXTRA_CYCLES * COLOR_BIT_DEPTH
+        total_frame_cycles += bitplane_transition_extra_cycles * COLOR_BIT_DEPTH
 
         if total_frame_cycles <= 0:
             return 0.0
@@ -551,8 +570,9 @@ class Hub75Driver:
         base_data_pin: machine.Pin,
         base_clock_pin: machine.Pin,
         data_frequency: int,
-        shift_register_depth: int
-    ) -> tuple[rp2.StateMachine, rp2.StateMachine]:
+        shift_register_depth: int,
+        system_frequency: int
+    ) -> _StateMachineSet:
         data_state_machine_id = Hub75Driver._get_absolute_state_machine_id(
             pio_block_id, _DATA_STATE_MACHINE_OFFSET
         )
@@ -568,6 +588,9 @@ class Hub75Driver:
                 autopull=True,
                 pull_thresh=32
             )
+
+            address_update_cycles = 1
+            bitplane_initialize_cycles = 1
 
             def initialize_bitplane():
                 set(x, (0b1 << row_addressing.bit_count) - 1).side(OE_DEASSERTED)
@@ -587,14 +610,39 @@ class Hub75Driver:
                 pull_thresh=32
             )
 
+            shift_register_frequency = row_addressing.clock_frequency if row_addressing.clock_frequency is not None else data_frequency
+            max_delay = 15  # 4 delay bits available (5-bit field shared with 1 sideset pin)
+            half_period_cycles = -(-system_frequency // (2 * shift_register_frequency))
+            shift_register_delay = half_period_cycles - 1
+
+            if shift_register_delay > max_delay:
+                minimum_frequency = system_frequency // (2 * (1 + max_delay))
+                if row_addressing.clock_frequency is None:
+                    raise ValueError(
+                        f"The shift register clock frequency cannot be reduced to the inherited data frequency "
+                        f"({data_frequency} Hz). The minimum achievable shift register clock frequency is "
+                        f"{minimum_frequency} Hz. Set clock_frequency explicitly on ShiftRegister to use a "
+                        f"different target."
+                    )
+                else:
+                    raise ValueError(
+                        f"The specified shift register clock frequency ({row_addressing.clock_frequency} Hz) "
+                        f"is below the minimum achievable shift register clock frequency of {minimum_frequency} Hz."
+                    )
+
+            shift_register_delay = max(0, shift_register_delay)
+
+            address_update_cycles = 3 * (1 + shift_register_delay)
+            bitplane_initialize_cycles = 2 + shift_register_delay
+
             def initialize_bitplane():
                 set(x, row_addressing.depth - 1).side(OE_DEASSERTED)
-                mov(pins, invert(null)).side(OE_DEASSERTED) [15]
+                mov(pins, invert(null)).side(OE_DEASSERTED) [shift_register_delay]
 
             def update_address():
-                set(pins, 1).side(OE_DEASSERTED) [15]
-                set(pins, 0).side(OE_DEASSERTED) [15]
-                mov(pins, null).side(OE_DEASSERTED) [15]
+                set(pins, 1).side(OE_DEASSERTED) [shift_register_delay]
+                set(pins, 0).side(OE_DEASSERTED) [shift_register_delay]
+                mov(pins, null).side(OE_DEASSERTED) [shift_register_delay]
         else:
             raise TypeError(f"Unsupported row addressing type: {type(row_addressing)}")
 
@@ -667,12 +715,26 @@ class Hub75Driver:
         # Seed data state machine with number of bits to clock out for each address
         data_state_machine.put(shift_register_depth - 1)
 
-        address_state_machine = rp2.StateMachine(
-            address_state_machine_id,
-            address_program,
-            out_base=base_address_pin,
-            sideset_base=output_enable_pin
-        )
+        if isinstance(row_addressing, Direct):
+            address_state_machine = rp2.StateMachine(
+                address_state_machine_id,
+                address_program,
+                out_base=row_addressing.base_pin,
+                sideset_base=output_enable_pin
+            )
+        elif isinstance(row_addressing, ShiftRegister):
+            address_state_machine = rp2.StateMachine(
+                address_state_machine_id,
+                address_program,
+                set_base=row_addressing.clock_pin,
+                out_base=row_addressing.data_pin,
+                sideset_base=output_enable_pin
+            )
 
-        return data_state_machine, address_state_machine
+        return _StateMachineSet(
+            data_state_machine=data_state_machine,
+            address_state_machine=address_state_machine,
+            address_update_cycles=address_update_cycles,
+            bitplane_initialize_cycles=bitplane_initialize_cycles
+        )
     
