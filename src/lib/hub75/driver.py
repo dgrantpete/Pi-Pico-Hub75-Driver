@@ -9,9 +9,9 @@ from micropython import const
 import _thread
 import re
 
+from .row_addressing import Direct, ShiftRegister
+from .gamma import SRGB, Power
 from pio_types import *
-
-DEFAULT_DATA_FREQUENCY = 20_000_000
 
 _DEFAULT_PIO_INDEX = const(0)
 
@@ -50,20 +50,25 @@ class Hub75Driver:
     def __init__(
             self,
             *,
-            address_bit_count: int,
+            row_addressing: Direct | ShiftRegister,
             shift_register_depth: int,
             pio: rp2.PIO | None = None,
-            base_address_pin: machine.Pin,
             output_enable_pin: machine.Pin,
             base_data_pin: machine.Pin,
             base_clock_pin: machine.Pin,
-            data_frequency: int = DEFAULT_DATA_FREQUENCY,
+            data_frequency: int = 20_000_000,
             brightness: float = 1.0,
             blanking_time: int = 0,
-            gamma: float = 2.2,
+            gamma: SRGB | Power | None = SRGB(),
             target_refresh_rate: float = 120.0
         ):
-        self._address_bit_count = address_bit_count
+        if isinstance(row_addressing, Direct):
+            self._row_address_count = 1 << row_addressing.bit_count
+        elif isinstance(row_addressing, ShiftRegister):
+            self._row_address_count = row_addressing.depth
+        else:
+            raise TypeError(f"Unsupported row addressing type: {type(row_addressing)}")
+
         self._shift_register_depth = shift_register_depth
         self._data_frequency = data_frequency
         self._system_frequency = machine.freq()
@@ -71,7 +76,7 @@ class Hub75Driver:
         self._timing_buffer = array('I', [0] * (COLOR_BIT_DEPTH * 2))
         self._timing_buffer_pointer = array('I', [uctypes.addressof(self._timing_buffer)])
 
-        self._gamma = max(0.0, gamma)
+        self._gamma = gamma
         self._gamma_lut = self.__class__._create_gamma_lut(self._gamma)
         self._brightness = max(0.0, min(1.0, brightness))
         self._blanking_time = max(0, blanking_time)
@@ -87,39 +92,18 @@ class Hub75Driver:
 
         self._active_buffer_index = 0
 
-        (address_program, data_program) = self.__class__._create_pio_programs(
-            address_bit_count
-        )
-
         self._pio = pio if pio is not None else rp2.PIO(_DEFAULT_PIO_INDEX)
         self._pio_block_id = self.__class__._get_pio_index(self._pio)
 
-        data_state_machine_id = self.__class__._get_absolute_state_machine_id(
-            self._pio_block_id, _DATA_STATE_MACHINE_OFFSET
-        )
-        address_state_machine_id = self.__class__._get_absolute_state_machine_id(
-            self._pio_block_id, _ADDRESS_STATE_MACHINE_OFFSET
-        )
-        
-        # Clear ALL programs in this PIO so we're starting from a blank slate
-        self._pio.remove_program()
-
-        self._data_state_machine = rp2.StateMachine(
-            data_state_machine_id,
-            data_program,
-            out_base=base_data_pin,
-            sideset_base=base_clock_pin,
-            freq=data_frequency * 2 # times 2 since each clock cycle has a rising and falling edge
-        )
-
-        # Seed data state machine with number of bits to clock out for each address
-        self._data_state_machine.put(shift_register_depth - 1)
-
-        self._address_state_machine = rp2.StateMachine(
-            address_state_machine_id,
-            address_program,
-            out_base=base_address_pin,
-            sideset_base=output_enable_pin
+        (self._data_state_machine, self._address_state_machine) = self.__class__._create_state_machines(
+            row_addressing=row_addressing,
+            pio=self._pio,
+            pio_block_id=self._pio_block_id,
+            output_enable_pin=output_enable_pin,
+            base_data_pin=base_data_pin,
+            base_clock_pin=base_clock_pin,
+            data_frequency=data_frequency,
+            shift_register_depth=shift_register_depth
         )
 
         self._active_buffer_address_pointer = array('I', [uctypes.addressof(self._active_buffer)])
@@ -252,7 +236,7 @@ class Hub75Driver:
 
         # Clear any leftover handshake IRQ flags so the next init starts with clean state.
         # The force-set above (and normal SM execution) can leave flags set, which would
-        # cause the data SM to skip its first wait on the next init — offsetting rows by 1.
+        # cause the data SM to skip its first wait on the next init, offsetting rows by 1.
         machine.mem32[pio_base + _PIO_IRQ_OFFSET] = (1 << _LATCH_SAFE_IRQ) | (1 << _LATCH_COMPLETE_IRQ)
 
         self._pio.remove_program()
@@ -289,13 +273,8 @@ class Hub75Driver:
 
     @property
     @micropython.native
-    def address_bit_count(self) -> int:
-        return self._address_bit_count
-    
-    @property
-    @micropython.native
     def row_address_count(self) -> int:
-        return 1 << self._address_bit_count
+        return self._row_address_count
     
     @property
     @micropython.native
@@ -348,27 +327,42 @@ class Hub75Driver:
 
     @property
     @micropython.native
-    def gamma(self) -> float:
+    def gamma(self) -> SRGB | Power | None:
         return self._gamma
 
     @micropython.native
-    def set_gamma(self, gamma: float) -> float:
-        self._gamma = max(0.0, gamma)
+    def set_gamma(self, gamma: SRGB | Power | None) -> SRGB | Power | None:
+        self._gamma = gamma
         self._gamma_lut = Hub75Driver._create_gamma_lut(self._gamma)
         return self._gamma
 
     @staticmethod
     @micropython.native
-    def _create_gamma_lut(gamma: float) -> bytearray:
+    def _create_gamma_lut(gamma: SRGB | Power | None) -> bytearray:
         max_value = (1 << COLOR_BIT_DEPTH) - 1
         lut = bytearray(1 << COLOR_BIT_DEPTH)
-        if gamma == 1.0:
+        if gamma is None:
             for i in range(1 << COLOR_BIT_DEPTH):
                 lut[i] = i
-        else:
+        elif isinstance(gamma, SRGB):
             inv_max = 1.0 / max_value
             for i in range(1 << COLOR_BIT_DEPTH):
-                lut[i] = round(max_value * ((i * inv_max) ** gamma))
+                x = i * inv_max
+                if x <= 0.04045:
+                    linear = x / 12.92
+                else:
+                    linear = ((x + 0.055) / 1.055) ** 2.4
+                lut[i] = round(max_value * linear)
+        elif isinstance(gamma, Power):
+            if gamma.value == 1.0:
+                for i in range(1 << COLOR_BIT_DEPTH):
+                    lut[i] = i
+            else:
+                inv_max = 1.0 / max_value
+                for i in range(1 << COLOR_BIT_DEPTH):
+                    lut[i] = round(max_value * ((i * inv_max) ** gamma.value))
+        else:
+            raise TypeError(f"Unsupported gamma type: {type(gamma)}")
         return lut
 
     @micropython.native
@@ -548,20 +542,66 @@ class Hub75Driver:
 
     @staticmethod
     @micropython.native
-    def _create_pio_programs(
-        address_bit_count: int
-    ) -> tuple[function, function]:
+    def _create_state_machines(
+        *,
+        row_addressing: Direct | ShiftRegister,
+        pio: rp2.PIO,
+        pio_block_id: int,
+        output_enable_pin: machine.Pin,
+        base_data_pin: machine.Pin,
+        base_clock_pin: machine.Pin,
+        data_frequency: int,
+        shift_register_depth: int
+    ) -> tuple[rp2.StateMachine, rp2.StateMachine]:
+        data_state_machine_id = Hub75Driver._get_absolute_state_machine_id(
+            pio_block_id, _DATA_STATE_MACHINE_OFFSET
+        )
+        address_state_machine_id = Hub75Driver._get_absolute_state_machine_id(
+            pio_block_id, _ADDRESS_STATE_MACHINE_OFFSET
+        )
+
+        if isinstance(row_addressing, Direct):
+            address_decorator = rp2.asm_pio(
+                sideset_init=rp2.PIO.OUT_HIGH,
+                out_init=[rp2.PIO.OUT_LOW] * row_addressing.bit_count,
+                out_shiftdir=rp2.PIO.SHIFT_RIGHT,
+                autopull=True,
+                pull_thresh=32
+            )
+
+            def initialize_bitplane():
+                set(x, (0b1 << row_addressing.bit_count) - 1).side(OE_DEASSERTED)
+
+            def update_address():
+                # We invert the bits here so it counts up from 0 to the highest address
+                # (even though the x register itself counts down from the highest address to 0)
+                mov(pins, invert(x)).side(OE_DEASSERTED)
+
+        elif isinstance(row_addressing, ShiftRegister):
+            address_decorator = rp2.asm_pio(
+                sideset_init=rp2.PIO.OUT_HIGH,
+                out_init=rp2.PIO.OUT_LOW,
+                set_init=rp2.PIO.OUT_LOW,
+                out_shiftdir=rp2.PIO.SHIFT_RIGHT,
+                autopull=True,
+                pull_thresh=32
+            )
+
+            def initialize_bitplane():
+                set(x, row_addressing.depth - 1).side(OE_DEASSERTED)
+                mov(pins, invert(null)).side(OE_DEASSERTED) [15]
+
+            def update_address():
+                set(pins, 1).side(OE_DEASSERTED) [15]
+                set(pins, 0).side(OE_DEASSERTED) [15]
+                mov(pins, null).side(OE_DEASSERTED) [15]
+        else:
+            raise TypeError(f"Unsupported row addressing type: {type(row_addressing)}")
 
         OE_ASSERTED = const(0b0)
         OE_DEASSERTED = const(0b1)
 
-        @rp2.asm_pio(
-            sideset_init=rp2.PIO.OUT_HIGH,
-            out_init=[rp2.PIO.OUT_LOW] * address_bit_count,
-            out_shiftdir=rp2.PIO.SHIFT_RIGHT,
-            autopull=True,
-            pull_thresh=32
-        )
+        @address_decorator
         def address_program():
             # We don't want to discard the first timing word
             # We jump over the instruction that would do so
@@ -573,12 +613,10 @@ class Hub75Driver:
             label("initialize")
             # After this, ISR contains the 'off' delay from the first word, OSR contains the 'on' delay from the second word (autopulled)
             out(isr, 32)                           .side(OE_DEASSERTED)
-            set(x, (0b1 << address_bit_count) - 1) .side(OE_DEASSERTED)
+            initialize_bitplane()
             label("write_address")
             irq(_LATCH_SAFE_IRQ)                   .side(OE_DEASSERTED)
-            # We invert the bits here so it counts up from 0 to the highest address
-            # (even though the x register itself counts down from the highest address to 0)
-            mov(pins, invert(x))                   .side(OE_DEASSERTED)
+            update_address()
             wait(1, irq, _LATCH_COMPLETE_IRQ)      .side(OE_DEASSERTED)
             mov(y, isr)                            .side(OE_DEASSERTED)
             label("off_delay_before_enable")
@@ -615,5 +653,26 @@ class Hub75Driver:
             irq(_LATCH_COMPLETE_IRQ)            .side(LATCH_ASSERTED)
             wrap()
 
-        return address_program, data_program
+        # Clear ALL programs in this PIO so we're starting from a blank slate
+        pio.remove_program()
+
+        data_state_machine = rp2.StateMachine(
+            data_state_machine_id,
+            data_program,
+            out_base=base_data_pin,
+            sideset_base=base_clock_pin,
+            freq=data_frequency * 2 # times 2 since each clock cycle has a rising and falling edge
+        )
+
+        # Seed data state machine with number of bits to clock out for each address
+        data_state_machine.put(shift_register_depth - 1)
+
+        address_state_machine = rp2.StateMachine(
+            address_state_machine_id,
+            address_program,
+            out_base=base_address_pin,
+            sideset_base=output_enable_pin
+        )
+
+        return data_state_machine, address_state_machine
     

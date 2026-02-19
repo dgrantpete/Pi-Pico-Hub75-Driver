@@ -3,7 +3,7 @@ import math
 import micropython
 from time import sleep_ms
 from machine import Pin
-from hub75 import Hub75Driver
+from hub75 import Hub75Driver, row_addressing, gamma as gamma_module
 from hub75.effects import render_plasma_frame, render_fire_frame, render_spiral_frame, render_balatro_frame
 
 # CONFIGURATION
@@ -64,9 +64,11 @@ def _init():
 
     print("Initializing driver...")
     driver = Hub75Driver(
-        address_bit_count=bit_length(HEIGHT // 2 - 1),
+        row_addressing=row_addressing.Direct(
+            base_pin=Pin(BASE_ADDRESS_PIN),
+            bit_count=bit_length(HEIGHT // 2 - 1)
+        ),
         shift_register_depth=WIDTH,
-        base_address_pin=Pin(BASE_ADDRESS_PIN),
         base_data_pin=Pin(BASE_DATA_PIN),
         base_clock_pin=Pin(BASE_CLOCK_PIN),
         output_enable_pin=Pin(OUTPUT_ENABLE_PIN),
@@ -256,16 +258,34 @@ def blanking_time(nanoseconds: int | None = None):
         actual = driver.set_blanking_time(nanoseconds)
         print(f"Blanking time set to {actual} ns")
 
-def gamma(value: float | None = None):
-    """Get or set display gamma correction (default 2.2)."""
+def gamma(value: gamma_module.SRGB | gamma_module.Power | None = ...):
+    """Get or set display gamma correction (default SRGB).
+
+    Usage:
+        gamma()                        -- print current setting
+        gamma(gamma_module.SRGB())     -- sRGB with linear region (default)
+        gamma(gamma_module.Power(2.2)) -- simple power function
+        gamma(None)                    -- no gamma correction
+    """
     if driver is None:
         print("Driver not initialized. Start an effect first.")
         return
-    if value is None:
-        print(f"Gamma: {driver.gamma}")
+    if value is ...:
+        current = driver.gamma
+        if current is None:
+            print("Gamma: None (no correction)")
+        elif isinstance(current, gamma_module.SRGB):
+            print("Gamma: SRGB")
+        elif isinstance(current, gamma_module.Power):
+            print(f"Gamma: Power({current.value})")
     else:
-        actual = driver.set_gamma(value)
-        print(f"Gamma set to {actual}")
+        driver.set_gamma(value)
+        if value is None:
+            print("Gamma set to None (no correction)")
+        elif isinstance(value, gamma_module.SRGB):
+            print("Gamma set to SRGB")
+        elif isinstance(value, gamma_module.Power):
+            print(f"Gamma set to Power({value.value})")
 
 def refresh_rate(target_refresh_rate: float | None = None):
     """Get current refresh rate, or set a target refresh rate in Hz."""
