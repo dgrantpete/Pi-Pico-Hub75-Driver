@@ -29,7 +29,7 @@ Benchmarks on a 64x64 panel:
 
 ## Wiring
 
-Default pin configuration (editable in `main.py`):
+Default pin configuration for **direct addressing** panels (editable in `main.py`):
 
 | HUB75 Pin | GPIO | Description |
 |-----------|------|-------------|
@@ -45,8 +45,18 @@ Default pin configuration (editable in `main.py`):
 | A | 9 | Row address bit 0 |
 | B | 10 | Row address bit 1 |
 | C | 11 | Row address bit 2 |
-| D | 12 | Row address bit 3 |
-| E | 13 | Row address bit 4 (for 64-row panels) |
+| D | 12 | Row address bit 3 (if present on panel) |
+| E | 13 | Row address bit 4 (if present on panel) |
+
+For **shift register addressing** panels, the address pins carry different signals:
+
+| HUB75 Pin | GPIO | Description |
+|-----------|------|-------------|
+| A | — | Shift register clock |
+| B | — | Shift register enable (directly connect to GND or hold low externally) |
+| C | — | Shift register data |
+
+See [Row Addressing](#row-addressing) for how to identify which type your panel uses.
 
 Connect GND from the Pico to GND on the HUB75 panel.
 
@@ -122,10 +132,12 @@ spiral()         # Rainbow spiral
 stop()           # Stop the current effect
 
 # Runtime display controls
-brightness(0.5)      # Set brightness (0.0 - 1.0)
-blanking_time(1000)  # Set blanking time in ns (reduces ghosting)
-gamma(2.2)           # Set gamma correction exponent
-refresh_rate(120)    # Set target refresh rate in Hz
+brightness(0.5)                    # Set brightness (0.0 - 1.0)
+blanking_time(1000)                # Set blanking time in ns (reduces ghosting)
+gamma(gamma_module.SRGB())         # sRGB gamma (default)
+gamma(gamma_module.Power(2.2))     # Simple power-function gamma
+gamma(None)                        # No gamma correction
+refresh_rate(120)                  # Set target refresh rate in Hz
 
 print_pinout()       # Show wiring for your configuration
 ```
@@ -133,22 +145,24 @@ print_pinout()       # Show wiring for your configuration
 ### Basic Usage
 
 ```python
-from hub75 import Hub75Driver, Hub75Display
+from hub75 import Hub75Driver, Hub75Display, row_addressing
 from machine import Pin
 
-# Initialize driver
+# Initialize driver (most panels use Direct addressing)
 driver = Hub75Driver(
-    address_bit_count=5,        # 5 for 64-row panels (1/32 scan)
+    row_addressing=row_addressing.Direct(
+        base_pin=Pin(9),        # First address GPIO (consecutive pins for each address line)
+        bit_count=5             # Number of address pins on your panel
+    ),
     shift_register_depth=64,    # Panel width
     base_data_pin=Pin(0),
     base_clock_pin=Pin(6),
     output_enable_pin=Pin(8),
-    base_address_pin=Pin(9),
     # Optional parameters (showing defaults):
-    # brightness=1.0,           # Display brightness (0.0 - 1.0)
-    # gamma=2.2,                # Gamma correction exponent
-    # blanking_time=0,          # Dead time in ns to reduce ghosting
-    # target_refresh_rate=120.0 # Target refresh rate in Hz
+    # brightness=1.0,               # Display brightness (0.0 - 1.0)
+    # gamma=gamma.SRGB(),           # Gamma correction (SRGB, Power, or None)
+    # blanking_time=0,              # Dead time in ns to reduce ghosting
+    # target_refresh_rate=120.0     # Target refresh rate in Hz
 )
 
 # Use the display wrapper for drawing
@@ -301,70 +315,146 @@ The scan rate tells you what fraction of rows are lit simultaneously:
 
 **Standard indoor panels** light 2 rows at a time. **Outdoor panels** with lower scan rates (1/4, 1/2) may light 4+ rows at a time for increased brightness.
 
-**How to find your configuration:**
-1. Check the panel label for scan rate (e.g., "1/32S")
-2. Count the address pins (A, B, C, D, E) — this directly gives you `address_bit_count`
+### Row Addressing
 
-### The Two Key Parameters
+HUB75 panels use two different methods to select which row is active. **Most panels use direct addressing** — if you're unsure, start with direct addressing.
+
+#### Direct Addressing (most panels)
+
+The most common type. The panel has binary address pins that directly select the active row. The number of address pins varies by panel — for example, 4 pins (A-D) can select 16 rows, and 5 pins (A-E) can select 32 rows.
+
+**How to identify:** Most standard indoor panels use direct addressing. If you're unsure which type your panel uses, start here — if the rows display incorrectly (only one row lights up, or rows appear in the wrong order), try shift register addressing instead.
 
 ```python
-Hub75Driver(
-    address_bit_count=5,      # ← Number of address pins on your panel
-    shift_register_depth=64,  # ← Pixels clocked per address cycle
-    ...
+from hub75 import Hub75Driver, row_addressing
+from machine import Pin
+
+driver = Hub75Driver(
+    row_addressing=row_addressing.Direct(
+        base_pin=Pin(9),    # First address GPIO (consecutive pins for each address line)
+        bit_count=5          # Number of address pins on your panel
+    ),
+    shift_register_depth=64,
+    base_data_pin=Pin(0),
+    base_clock_pin=Pin(6),
+    output_enable_pin=Pin(8),
 )
 ```
 
-#### `address_bit_count`
-The number of address lines your panel uses. Count the address pins on your panel's input connector (A, B, C, D, E).
+| Address Pins | `bit_count` | Scan Rate |
+|--------------|-------------|-----------|
+| A, B, C      | 3           | 1/8       |
+| A, B, C, D   | 4           | 1/16      |
+| A, B, C, D, E| 5           | 1/32      |
 
-| Address Pins | address_bit_count |
-|--------------|-------------------|
-| A, B, C      | 3                 |
-| A, B, C, D   | 4                 |
-| A, B, C, D, E| 5                 |
+The address pins must be on **consecutive GPIOs** starting from `base_pin`.
+
+#### Shift Register Addressing (some panels)
+
+Some panels — particularly certain outdoor panels, very large panels, or panels with high row counts — use a shift register chain to select the active row instead of binary address pins. Rather than outputting a binary address, the driver clocks a single '1' bit through the shift register, and the position of that bit determines which row is active.
+
+**How to identify:** If your panel doesn't work with direct addressing (wrong rows light up, or only one row works), it may use shift register addressing. The HUB75 connector's address pins (A, B, C) serve different roles:
+- **A** = shift register clock
+- **B** = shift register enable (active low — connect to GND or hold low externally)
+- **C** = shift register data input
+
+```python
+from hub75 import Hub75Driver, row_addressing
+from machine import Pin
+
+# Hold the enable pin low (do this before constructing the driver)
+enable_pin = Pin(10, Pin.OUT, value=0)
+
+driver = Hub75Driver(
+    row_addressing=row_addressing.ShiftRegister(
+        clock_pin=Pin(9),    # Shift register clock (HUB75 pin A)
+        data_pin=Pin(11),    # Shift register data (HUB75 pin C)
+        depth=32              # Number of addressable rows
+    ),
+    shift_register_depth=64,
+    base_data_pin=Pin(0),
+    base_clock_pin=Pin(6),
+    output_enable_pin=Pin(8),
+)
+```
+
+The `depth` parameter is the number of distinct row addresses the shift register cycles through. This is equivalent to the scan rate denominator (e.g., 32 for a 1/32 scan panel, 16 for a 1/16 scan panel).
+
+**Optional: `clock_frequency`** — By default, the shift register is clocked at the same rate as `data_frequency`. If your shift register IC requires a different speed, you can set it explicitly:
+
+```python
+row_addressing.ShiftRegister(
+    clock_pin=Pin(9),
+    data_pin=Pin(11),
+    depth=32,
+    clock_frequency=10_000_000  # 10 MHz shift register clock
+)
+```
+
+The driver will raise an error if the requested clock frequency is too low to achieve with the available PIO timing. In that case, the error message will tell you the minimum achievable frequency.
 
 #### `shift_register_depth`
 The number of pixels clocked into the panel per address cycle. For **standard indoor panels**, this equals the panel width.
 
 **Outdoor panels** with lower scan rates (1/4, 1/2) may light more than 2 rows simultaneously. These panels often require clocking in more data per address — for example, `width × 2` pixels if 4 rows light at once. In this case, set `shift_register_depth` to the total pixels per cycle, not just the panel width.
 
+### Gamma Correction
+
+The driver supports three gamma correction modes:
+
+```python
+from hub75 import Hub75Driver, gamma
+
+# sRGB gamma with linear region (default) — best for most displays
+driver = Hub75Driver(..., gamma=gamma.SRGB())
+
+# Simple power-function gamma — traditional approach
+driver = Hub75Driver(..., gamma=gamma.Power(2.2))
+
+# No gamma correction — linear output
+driver = Hub75Driver(..., gamma=None)
+```
+
+Gamma correction can also be changed at runtime with `driver.set_gamma(...)`.
+
 ### Common Panel Configurations
 
-**Standard indoor panels** (2 rows lit at a time):
+**Standard indoor panels** (2 rows lit at a time, direct addressing):
 
-| Panel | Scan Rate | address_bit_count | shift_register_depth |
-|-------|-----------|-------------------|----------------------|
-| 32×16 | 1/8       | 3                 | 32                   |
-| 32×32 | 1/16      | 4                 | 32                   |
-| 64×32 | 1/16      | 4                 | 64                   |
-| 64×64 | 1/32      | 5                 | 64                   |
-| 128×64| 1/32      | 5                 | 128                  |
+| Panel | Scan Rate | `bit_count` | `shift_register_depth` |
+|-------|-----------|-------------|------------------------|
+| 32×16 | 1/8       | 3           | 32                     |
+| 32×32 | 1/16      | 4           | 32                     |
+| 64×32 | 1/16      | 4           | 64                     |
+| 64×64 | 1/32      | 5           | 64                     |
+| 128×64| 1/32      | 5           | 128                    |
 
 **Outdoor panels** (4+ rows lit at a time):
 
-| Panel | Scan Rate | address_bit_count | shift_register_depth |
-|-------|-----------|-------------------|----------------------|
-| 64×32 | 1/8       | 3                 | 128                  |
-| 64×32 | 1/4       | 2                 | 256                  |
+| Panel | Scan Rate | `bit_count` | `shift_register_depth` |
+|-------|-----------|-------------|------------------------|
+| 64×32 | 1/8       | 3           | 128                    |
+| 64×32 | 1/4       | 2           | 256                    |
 
-For outdoor panels, `shift_register_depth = width × (rows_lit_at_once ÷ 2)`.
+For outdoor panels, `shift_register_depth = width × (rows_lit_at_once / 2)`.
 
 ### Complete Configuration Example
 
-For a **64×64 panel with 1/32 scan**:
+For a **64×64 panel with 1/32 scan** (direct addressing):
 
 ```python
-from hub75 import Hub75Driver
+from hub75 import Hub75Driver, row_addressing
 from machine import Pin
 
 driver = Hub75Driver(
-    address_bit_count=5,        # 5 address lines (A-E) for 1/32 scan
+    row_addressing=row_addressing.Direct(
+        base_pin=Pin(9),        # Address lines on consecutive GPIOs starting here
+        bit_count=5              # Number of address pins (5 for 1/32 scan)
+    ),
     shift_register_depth=64,    # 64 pixels wide
     base_data_pin=Pin(0),       # R1,G1,B1,R2,G2,B2 on GPIO 0-5
     base_clock_pin=Pin(6),      # CLK,LAT on GPIO 6-7
     output_enable_pin=Pin(8),   # OE on GPIO 8
-    base_address_pin=Pin(9),    # A,B,C,D,E on GPIO 9-13
     data_frequency=25_000_000   # 25 MHz pixel clock
 )
 ```
@@ -373,12 +463,15 @@ driver = Hub75Driver(
 
 For **horizontally chained** panels (e.g., two 64×64 panels side by side = 128×64):
 - Increase `shift_register_depth` to total width (128)
-- Keep `address_bit_count` the same
+- Keep `row_addressing` the same
 
 ```python
 # Two 64x64 panels chained horizontally
 driver = Hub75Driver(
-    address_bit_count=5,        # Same as single panel
+    row_addressing=row_addressing.Direct(
+        base_pin=Pin(9),
+        bit_count=5
+    ),
     shift_register_depth=128,   # 64 + 64 = 128 pixels wide
     ...
 )
@@ -393,8 +486,11 @@ driver = Hub75Driver(
 
 **Only half the panel lights up or there are rows mixed up?**
 - Ensure `shift_register_depth` matches your panel width or total pixels per cycle
-- Check `address_bit_count`, you may need more address lines
+- Check `bit_count` — you may need more address lines
 - Verify your panel's actual scan rate matches your config
+
+**Only one row lights up, or rows appear in the wrong order?**
+- Your panel may use shift register addressing instead of direct addressing. See [Shift Register Addressing](#shift-register-addressing-some-panels) above.
 
 **Flickering or dim display?**
 - Ensure adequate 5V power supply (panels can draw 2-4A at full brightness)
@@ -409,13 +505,14 @@ Edit the pin constants to match your wiring:
 BASE_DATA_PIN = 0       # First GPIO for R1,G1,B1,R2,G2,B2 (consecutive)
 BASE_CLOCK_PIN = 6      # First GPIO for CLK,LAT (consecutive)
 OUTPUT_ENABLE_PIN = 8   # GPIO for OE
-BASE_ADDRESS_PIN = 9    # First GPIO for address lines (consecutive)
+BASE_ADDRESS_PIN = 9    # First GPIO for address lines (consecutive for Direct)
 ```
 
 The driver expects pins in consecutive groups:
 - **Data pins**: 6 consecutive GPIOs (R1, G1, B1, R2, G2, B2)
 - **Clock pins**: 2 consecutive GPIOs (CLK, LAT)
-- **Address pins**: 3-5 consecutive GPIOs depending on scan rate (A, B, C, [D], [E])
+- **Address pins (Direct)**: Consecutive GPIOs for each address line on your panel (varies by scan rate)
+- **Address pins (ShiftRegister)**: Clock and data pins specified individually
 
 ## API Reference
 
@@ -428,20 +525,26 @@ Low-level driver for direct hardware control.
 ```python
 Hub75Driver(
     *,
-    address_bit_count: int,
+    row_addressing: row_addressing.Direct | row_addressing.ShiftRegister,
     shift_register_depth: int,
     base_data_pin: Pin,
     base_clock_pin: Pin,
     output_enable_pin: Pin,
-    base_address_pin: Pin,
     pio: PIO | None = None,
     data_frequency: int = 20_000_000,
     brightness: float = 1.0,
-    gamma: float = 2.2,
+    gamma: gamma.SRGB | gamma.Power | None = gamma.SRGB(),
     blanking_time: int = 0,
     target_refresh_rate: float = 120.0
 )
 ```
+
+**Row addressing types:**
+
+| Type | Parameters | Description |
+|------|-----------|-------------|
+| `row_addressing.Direct(base_pin, bit_count)` | `base_pin`: first address GPIO, `bit_count`: number of address pins | Standard binary address pins |
+| `row_addressing.ShiftRegister(data_pin, clock_pin, depth, clock_frequency=None)` | `data_pin`: data GPIO, `clock_pin`: clock GPIO, `depth`: addressable rows, `clock_frequency`: optional clock speed | Shift register row selection |
 
 **Frame Operations:**
 
@@ -459,7 +562,7 @@ Hub75Driver(
 |--------|---------|-------------|
 | `set_brightness(brightness)` | `float` | Set display brightness (0.0 - 1.0) |
 | `set_blanking_time(nanoseconds)` | `int` | Set dead time in ns between row switches to reduce ghosting |
-| `set_gamma(gamma)` | `float` | Set gamma correction exponent (default 2.2) |
+| `set_gamma(gamma)` | `SRGB \| Power \| None` | Set gamma correction mode |
 | `set_target_refresh_rate(target_refresh_rate)` | `float` | Set target refresh rate in Hz. Returns closest achievable rate. |
 | `set_frequency(data_frequency)` | `int` | Set the PIO data clock frequency in Hz |
 | `sync_system_frequency()` | `int` | Re-sync internal timings after changing `machine.freq()` |
@@ -470,12 +573,11 @@ Hub75Driver(
 |----------|------|-------------|
 | `brightness` | `float` | Current brightness (0.0 - 1.0) |
 | `blanking_time` | `int` | Current blanking time in nanoseconds |
-| `gamma` | `float` | Current gamma correction exponent |
+| `gamma` | `SRGB \| Power \| None` | Current gamma correction mode |
 | `refresh_rate` | `float` | Current estimated refresh rate in Hz |
 | `data_frequency` | `int` | Current PIO data clock frequency |
 | `system_frequency` | `int` | Cached system clock frequency |
-| `address_bit_count` | `int` | Number of address lines |
-| `row_address_count` | `int` | Number of row addresses (2^address_bit_count) |
+| `row_address_count` | `int` | Number of row addresses |
 | `shift_register_depth` | `int` | Pixels per row shift |
 
 ### Hub75Display
